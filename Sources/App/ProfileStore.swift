@@ -8,6 +8,7 @@ enum ProfileStoreError: LocalizedError {
     case unsupportedFormat
     case keychain(OSStatus)
     case cleanupFailed
+    case duplicateConnection
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,7 @@ enum ProfileStoreError: LocalizedError {
             if status == errSecInteractionNotAllowed { return "系统钥匙串暂时不可用，请解锁后重试。" }
             return "无法访问系统钥匙串（\(status)）。"
         case .cleanupFailed: return "连接记录已保存，但旧凭据未能清理。请重新保存或删除该记录。"
+        case .duplicateConnection: return "已有相同地址和账号的连接记录，请直接使用已有记录。"
         }
     }
 }
@@ -63,8 +65,10 @@ final class ProfileStore {
         guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ProfileStoreError.missingUsername
         }
-        return ConnectionProfile(id: original?.id ?? UUID(), serverHost: host.lowercased(),
+        let profile = ConnectionProfile(id: original?.id ?? UUID(), serverHost: host.lowercased(),
             serverPort: parts.port ?? 443, username: username, credentialRef: original?.credentialRef ?? UUID().uuidString)
+        try validateUniqueEdit(profile, among: load())
+        return profile
     }
 
     func password(for profile: ConnectionProfile) throws -> String {
@@ -85,6 +89,7 @@ final class ProfileStore {
     func save(_ profile: ConnectionProfile, password: String) throws -> ConnectionProfile {
         guard !password.isEmpty else { throw ProfileStoreError.missingPassword }
         var profiles = try load()
+        try validateUniqueEdit(profile, among: profiles)
         let existing = profiles.first(where: { $0.id == profile.id }) ?? profiles.first(where: {
             $0.serverHost == profile.serverHost && $0.serverPort == profile.serverPort && $0.username == profile.username
         })
@@ -127,6 +132,13 @@ final class ProfileStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(Document(schemaVersion: 1, profiles: profiles)).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    private func validateUniqueEdit(_ profile: ConnectionProfile, among profiles: [ConnectionProfile]) throws {
+        guard profiles.contains(where: { $0.id == profile.id }) else { return }
+        if profiles.contains(where: {
+            $0.id != profile.id && $0.serverHost == profile.serverHost && $0.serverPort == profile.serverPort && $0.username == profile.username
+        }) { throw ProfileStoreError.duplicateConnection }
     }
 
     private func credentialQuery(_ reference: String) -> [String: Any] {
