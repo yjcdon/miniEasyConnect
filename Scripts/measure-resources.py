@@ -4,6 +4,7 @@
 import argparse
 import ctypes
 import json
+import re
 import statistics
 import subprocess
 import time
@@ -21,7 +22,7 @@ def cpu_seconds(value):
     return seconds + (int(days) * 86400 if days else 0)
 
 
-def sample(bundle):
+def sample(bundle, metric):
     output = subprocess.check_output(
         ["/bin/ps", "-axo", "pid=,time=,rss=,comm="], text=True
     )
@@ -41,6 +42,21 @@ def sample(bundle):
                 "rssBytes": int(rss) * 1024,
                 "cpuSeconds": cpu_seconds(cpu),
             }
+    if metric == "footprint" and processes:
+        arguments = ["/usr/bin/top", "-l", "1", "-stats", "pid,mem"]
+        for pid in processes:
+            arguments.extend(["-pid", str(pid)])
+        output = subprocess.check_output(arguments, text=True)
+        footprints = {}
+        for line in output.splitlines():
+            match = re.fullmatch(r"\s*(\d+)\s+(\d+(?:\.\d+)?)([BKMGT]?)[+-]?\s*", line)
+            if match:
+                pid, value, unit = match.groups()
+                footprints[int(pid)] = int(float(value) * 1024 ** {"": 0, "B": 0, "K": 1, "M": 2, "G": 3, "T": 4}[unit])
+        if not processes.keys() <= footprints.keys():
+            raise RuntimeError("Physical footprint unavailable for one or more current app processes")
+        for pid, process in processes.items():
+            process["footprintBytes"] = footprints[pid]
     return processes
 
 
@@ -49,27 +65,30 @@ def main():
     parser.add_argument("app", type=Path, help="App bundle to measure")
     parser.add_argument("--seconds", type=int, default=60)
     parser.add_argument("--interval", type=float, default=2)
+    parser.add_argument("--metric", choices=("rss", "footprint"), default="rss")
     args = parser.parse_args()
     if args.seconds <= 0 or args.interval <= 0:
         parser.error("seconds and interval must be positive")
     bundle = args.app.resolve(strict=True)
-    start = sample(bundle)
+    began = time.monotonic()
+    start = sample(bundle, args.metric)
     if not start:
         parser.error("no running processes from this app bundle")
-    began = time.monotonic()
-    samples = [sum(process["rssBytes"] for process in start.values())]
+    memory_key = "rssBytes" if args.metric == "rss" else "footprintBytes"
+    samples = [sum(process[memory_key] for process in start.values())]
     current = start
     while time.monotonic() - began < args.seconds:
         time.sleep(min(args.interval, max(0, args.seconds - (time.monotonic() - began))))
-        current = sample(bundle)
+        current = sample(bundle, args.metric)
         if not current:
             parser.error("app exited during measurement")
-        samples.append(sum(process["rssBytes"] for process in current.values()))
+        samples.append(sum(process[memory_key] for process in current.values()))
     elapsed = time.monotonic() - began
     cpu = sum(max(0, process["cpuSeconds"] - start.get(pid, {"cpuSeconds": 0})["cpuSeconds"])
               for pid, process in current.items())
     print(json.dumps({
-        "metric": "sum of RSS; shared pages may be counted more than once",
+        "metric": ("sum of RSS; shared pages may be counted more than once" if args.metric == "rss"
+                   else "sum of physical footprints from top; rounded display, binary units"),
         "durationSeconds": round(elapsed, 2),
         "samples": len(samples),
         "meanMB": round(statistics.mean(samples) / 1_000_000, 2),
