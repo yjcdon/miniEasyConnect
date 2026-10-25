@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import SystemConfiguration
+import Darwin
 
 enum HelperIdentity {
     static func requirement(identifier: String) throws -> String {
@@ -94,7 +95,7 @@ enum HelperMain {
             exit(1)
         }
         signal(SIGPIPE, SIG_IGN)
-        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let executable = executableURL()
         let core = executable.deletingLastPathComponent().appendingPathComponent(AppIdentity.coreExecutableName)
         let supervisor = CoreSupervisor(coreURL: core)
         let delegate = HelperListener(supervisor: supervisor)
@@ -106,5 +107,15 @@ enum HelperMain {
         termination.setEventHandler { supervisor.shutdown { exit(0) } }
         termination.resume()
         withExtendedLifetime((delegate, termination)) { RunLoop.current.run() }
+    }
+
+    /// Resolves the running binary independently of launchd's relative BundleProgram argument.
+    private static func executableURL() -> URL {
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(getpid(), &path, UInt32(path.count)) > 0 else {
+            fputs("Unable to resolve the helper executable path.\n", stderr)
+            exit(1)
+        }
+        return URL(fileURLWithPath: String(cString: path)).resolvingSymlinksInPath()
     }
 }
