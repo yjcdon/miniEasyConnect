@@ -446,6 +446,7 @@ final class CoreSupervisor {
 
     private func safeMessage(code: String?) -> String {
         switch code {
+        case "accountLocked": return "账号已被 VPN 服务端锁定，请等待解锁或联系管理员。"
         case "authenticationFailed": return "账号、密码或验证信息未通过，请检查后重试。"
         case "unsupportedAuthentication": return "服务端要求的登录验证暂不支持，或认证结果无法识别。"
         case "serverCertificate": return "无法验证 VPN 服务端证书，请检查系统信任设置。"

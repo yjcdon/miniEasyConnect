@@ -39,6 +39,9 @@ var ErrInvalidLoginResponse = errors.New("unsupported EasyConnect login response
 // ErrAuthenticationRejected means a server login response explicitly rejected authentication.
 var ErrAuthenticationRejected = errors.New("authentication rejected by server")
 
+// ErrAccountLocked identifies the server's anti-brute-force account lock response.
+var ErrAccountLocked = errors.New("account locked by server")
+
 // ErrUnsupportedAuthentication identifies an unsupported or unrecognized authentication exchange.
 var ErrUnsupportedAuthentication = errors.New("unsupported authentication exchange")
 
@@ -47,6 +50,9 @@ func authenticationFailure(body []byte, stage string) error {
 	if regexp.MustCompile(`<Result>\s*0\s*</Result>`).Match(body) {
 		code := regexp.MustCompile(`<ErrorCode>\s*([0-9]{1,8})\s*</ErrorCode>`).FindSubmatch(body)
 		if len(code) == 2 {
+			if string(code[1]) == "20020" {
+				return fmt.Errorf("%w: %w", ErrAuthenticationRejected, ErrAccountLocked)
+			}
 			return fmt.Errorf("%w: server code %s", ErrAuthenticationRejected, string(code[1]))
 		}
 		return ErrAuthenticationRejected

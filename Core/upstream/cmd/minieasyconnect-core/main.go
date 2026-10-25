@@ -659,6 +659,9 @@ func (f *dnsForwarder) ServeDNS(w dns.ResponseWriter, m *dns.Msg) {
 
 // publicError never exposes an upstream response, account, endpoint or credential.
 func publicError(err error) (string, string) {
+	if errors.Is(err, easyconnect.ErrAccountLocked) {
+		return "accountLocked", "账号已被 VPN 服务端锁定，请等待解锁或联系管理员"
+	}
 	if errors.Is(err, easyconnect.ErrAuthenticationRejected) {
 		return "authenticationFailed", "服务端未通过账号、密码或验证信息，请检查后重试"
 	}
