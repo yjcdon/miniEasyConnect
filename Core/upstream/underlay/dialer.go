@@ -106,6 +106,14 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	if d == nil {
 		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}
+	// Local endpoints belong to loopback, never to a physical VPN underlay.
+	if isLoopbackAddress(address) {
+		conn, err := dialOnInterface(ctx, network, address, "", d.localDNSServer)
+		if err != nil {
+			return nil, err
+		}
+		return d.wrapCapture(conn), nil
+	}
 	interfaceName := d.ensureInterface(address)
 	d.mu.RLock()
 	autoDetect := d.autoDetect
