@@ -445,6 +445,8 @@ final class CoreSupervisor {
         case "authenticationFailed": return "账号、密码或验证信息未通过，请检查后重试。"
         case "serverCertificate": return "无法验证 VPN 服务端证书，请检查系统信任设置。"
         case "dnsUnavailable": return "VPN DNS 初始化失败，请检查端口占用和网络配置。"
+        case "dnsListenerFailed": return "本地 DNS 服务未能启动，请检查 DNS 端口占用。"
+        case "dnsReadinessFailed": return "登录已通过，但未收到 VPN DNS 响应，请稍后重试。"
         case "resourcesUnavailable": return "服务端未提供可用的内网访问资源。"
         case "routeFailed": return "VPN 路由配置失败，请断开其他 VPN 后重试。"
         case "unsupportedMode": return "此服务端连接模式暂不支持 TUN。"

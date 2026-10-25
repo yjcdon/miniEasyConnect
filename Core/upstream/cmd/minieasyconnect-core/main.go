@@ -341,11 +341,27 @@ func (s *session) run(c configuration) error {
 	check := new(dns.Msg)
 	check.SetQuestion(".", dns.TypeNS)
 	checkCtx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
-	_, err = forwarder.HandleDnsMsg(checkCtx, check)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("DNS readiness: %w", err)
+	defer cancel()
+	readiness := make(chan error, 1)
+	go func() { _, probeErr := forwarder.HandleDnsMsg(checkCtx, check); readiness <- probeErr }()
+	select {
+	case err = <-readiness:
+		select {
+		case runErr := <-runErrors:
+			return fmt.Errorf("tunnel: %w", runErr)
+		default:
+		}
+		if err != nil {
+			return fmt.Errorf("DNS readiness: %w", err)
+		}
+	case err = <-runErrors:
+		return fmt.Errorf("tunnel: %w", err)
+	case err = <-serveErrors:
+		return fmt.Errorf("DNS listener: %w", err)
+	case <-s.ctx.Done():
+		return s.ctx.Err()
 	}
+	cancel()
 	s.emit(event{Kind: "ready", InterfaceName: st.InterfaceName(), DNSAddress: localDNSAddress, Routes: routes, CertificateSHA256: pinnedCertificate})
 	select {
 	case <-s.ctx.Done():
@@ -418,21 +434,21 @@ func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, 
 	default:
 		return nil, errors.New("DNS request limit reached")
 	}
-	exchange := func(network string) (*dns.Msg, error) {
+	exchange := func(attemptCtx context.Context, network string) (*dns.Msg, error) {
 		var conn net.Conn
 		var err error
 		if network == "udp" {
-			conn, err = f.stack.DialUDP(queryCtx, &net.UDPAddr{IP: net.ParseIP(f.remote), Port: 53})
+			conn, err = f.stack.DialUDP(attemptCtx, &net.UDPAddr{IP: net.ParseIP(f.remote), Port: 53})
 		} else {
-			conn, err = f.stack.DialTCP(queryCtx, &net.TCPAddr{IP: net.ParseIP(f.remote), Port: 53})
+			conn, err = f.stack.DialTCP(attemptCtx, &net.TCPAddr{IP: net.ParseIP(f.remote), Port: 53})
 		}
 		if err != nil {
 			return nil, err
 		}
 		defer conn.Close()
-		stopIO := context.AfterFunc(queryCtx, func() { _ = conn.Close() })
+		stopIO := context.AfterFunc(attemptCtx, func() { _ = conn.Close() })
 		defer stopIO()
-		deadline, _ := queryCtx.Deadline()
+		deadline, _ := attemptCtx.Deadline()
 		_ = conn.SetDeadline(deadline)
 		c := &dns.Conn{Conn: conn}
 		if err = c.WriteMsg(m); err != nil {
@@ -467,9 +483,12 @@ func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, 
 		}
 	}
 	if response == nil {
-		response, err = exchange("udp")
+		// A UDP timeout must leave time for a real TCP attempt within the same total budget.
+		udpCtx, cancelUDP := context.WithTimeout(queryCtx, 3*time.Second)
+		response, err = exchange(udpCtx, "udp")
+		cancelUDP()
 		if err != nil || response.Truncated {
-			response, err = exchange("tcp")
+			response, err = exchange(queryCtx, "tcp")
 		}
 	}
 	if err != nil {
@@ -609,7 +628,9 @@ func publicError(err error) (string, string) {
 	case strings.Contains(message, "administrator"):
 		return "authorizationRequired", "连接需要系统授权"
 	case strings.HasPrefix(message, "dns listener"):
-		return "dnsUnavailable", "DNS 监听启动失败，请检查端口占用"
+		return "dnsListenerFailed", "本地 DNS 监听未能启动，请检查端口占用"
+	case strings.HasPrefix(message, "dns readiness"):
+		return "dnsReadinessFailed", "已完成登录，但 VPN 域名解析服务没有响应"
 	case strings.HasPrefix(message, "dns"):
 		return "dnsUnavailable", "VPN 域名解析服务不可用"
 	case strings.HasPrefix(message, "route"):
