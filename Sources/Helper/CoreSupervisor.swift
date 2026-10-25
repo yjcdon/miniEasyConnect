@@ -55,7 +55,7 @@ final class CoreSupervisor {
     private var stopReplies: [(Data) -> Void] = []
     private var connectDeadline: DispatchWorkItem?
     private var clients: Set<UUID> = []
-    private var idleExit: DispatchWorkItem?
+    private var networkRestored = false
 
     init(coreURL: URL) {
         self.coreURL = coreURL
@@ -65,14 +65,16 @@ final class CoreSupervisor {
             snapshot = ConnectionSnapshot(state: .failed, message: error.localizedDescription)
         }
         if let recovery {
-            do { try recovery.restore() }
+            do {
+                try recovery.restore()
+                networkRestored = true
+            }
             catch { snapshot = ConnectionSnapshot(state: .failed, message: error.localizedDescription) }
         }
     }
 
     func attached(client: UUID) {
         queue.async {
-            self.idleExit?.cancel()
             self.clients.insert(client)
         }
     }
@@ -135,7 +137,7 @@ final class CoreSupervisor {
             self.observers.removeValue(forKey: client)
             self.clients.remove(client)
             if self.owner == client { self.stop(failure: nil) }
-            else { self.scheduleIdleExit() }
+            else { self.exitIfIdle() }
         }
     }
 
@@ -150,6 +152,7 @@ final class CoreSupervisor {
         }
         try HelperIdentity.validateCore(at: coreURL)
         let sessionID = UUID().uuidString
+        networkRestored = false
         try recovery.begin(sessionID: sessionID)
 
         let child = Process()
@@ -198,7 +201,10 @@ final class CoreSupervisor {
                 input = nil
                 output = nil
                 self.owner = nil
-                do { try recovery.restore() }
+                do {
+                    try recovery.restore()
+                    networkRestored = true
+                }
                 catch { pendingFailure = error.localizedDescription }
                 update(ConnectionSnapshot(state: .failed, message: pendingFailure))
             }
@@ -380,7 +386,9 @@ final class CoreSupervisor {
         do {
             if recovery == nil { recovery = try NetworkRecovery() }
             try recovery!.restore()
+            networkRestored = true
         } catch {
+            networkRestored = false
             pendingFailure = error.localizedDescription
             pendingRetryable = false
         }
@@ -393,18 +401,13 @@ final class CoreSupervisor {
         for reply in replies { respond(reply, error: pendingFailure) }
         pendingFailure = nil
         pendingRetryable = false
-        scheduleIdleExit()
+        exitIfIdle()
     }
 
-    private func scheduleIdleExit() {
-        guard clients.isEmpty, process == nil else { return }
-        idleExit?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.clients.isEmpty, self.process == nil else { return }
-            exit(0)
-        }
-        idleExit = work
-        queue.asyncAfter(deadline: .now() + 3, execute: work)
+    /// Releases the helper immediately after its final client leaves and all session resources are restored.
+    private func exitIfIdle() {
+        guard clients.isEmpty, process == nil, networkRestored else { return }
+        exit(0)
     }
 
     private func scheduleConnectTimeout(sessionID: String) {
