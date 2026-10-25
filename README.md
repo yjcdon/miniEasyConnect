@@ -23,6 +23,17 @@
 3. 点击“+”，填写地址（如 `vpn.example.com:443`）、账号和密码，发起连接。
 4. 首次连接按应用提示，在系统设置中批准后台辅助服务，再返回点击“已允许，继续连接”。普通连接与重连复用这次批准。
 
+### Homebrew 安装
+
+```sh
+brew tap yjcdon/minieasyconnect https://github.com/yjcdon/miniEasyConnect
+brew install --cask yjcdon/minieasyconnect/minieasyconnect
+```
+
+Homebrew 下载同一个 v1.0.0 应用包并校验 SHA-256，仅支持 Apple Silicon 与 macOS 13 或更新版本。首次打开的安全提示和后台服务批准步骤与手动安装相同。
+
+如果此前已手动安装，先退出应用并将旧的 `.app` 移到废纸篓，再执行安装命令；连接记录和钥匙串密码会保留。使用 Homebrew 卸载前，仍需先在应用菜单中选择“停用后台服务…”，再执行 `brew uninstall --cask yjcdon/minieasyconnect/minieasyconnect`。
+
 ### 首次打开的安全提示
 
 **v1.0.0 使用 Apple Development 开发签名，尚未经过 Apple 公证。** macOS 可能阻止首次打开。
