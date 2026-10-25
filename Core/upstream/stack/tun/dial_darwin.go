@@ -16,18 +16,18 @@ func (s *Stack) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, error
 	s.endpoint.configMu.RLock()
 	defer s.endpoint.configMu.RUnlock()
 	prefix, ok := netaddr.FromStdIP(addr.IP)
-	if ok && s.endpoint.ipSet.Contains(prefix) {
-		return s.endpoint.tcpDialer.Dial("tcp4", addr.String())
+	if ok && s.endpoint.ipSet != nil && s.endpoint.ipSet.Contains(prefix) {
+		return s.endpoint.tcpDialer.DialContext(ctx, "tcp4", addr.String())
 	}
-	return net.DialTCP("tcp4", nil, addr)
+	return (&net.Dialer{}).DialContext(ctx, "tcp4", addr.String())
 }
 
 func (s *Stack) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Conn, error) {
 	s.endpoint.configMu.RLock()
 	defer s.endpoint.configMu.RUnlock()
 	prefix, ok := netaddr.FromStdIP(addr.IP)
-	if ok && s.endpoint.ipSet.Contains(prefix) {
-		return s.endpoint.udpDialer.Dial("udp4", addr.String())
+	if ok && s.endpoint.ipSet != nil && s.endpoint.ipSet.Contains(prefix) {
+		return s.endpoint.udpDialer.DialContext(ctx, "udp4", addr.String())
 	}
-	return net.DialUDP("udp4", nil, addr)
+	return (&net.Dialer{}).DialContext(ctx, "udp4", addr.String())
 }

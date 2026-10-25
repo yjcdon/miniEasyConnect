@@ -36,6 +36,17 @@ type Endpoint struct {
 	udpDialer *net.Dialer
 }
 
+// InterfaceName identifies this session's virtual interface to its supervisor.
+func (s *Stack) InterfaceName() string { return s.endpoint.ifceName }
+
+// Close releases the virtual device and the established transport.
+func (s *Stack) Close() error {
+	if s.l3Conn != nil {
+		_ = s.l3Conn.Close()
+	}
+	return s.endpoint.ifce.Close()
+}
+
 func (ep *Endpoint) Write(buf []byte) error {
 	if len(buf) == 0 {
 		return nil
@@ -59,10 +70,23 @@ func (s *Stack) AddRoute(target string) error {
 		return err
 	}
 
+	s.endpoint.configMu.Lock()
+	defer s.endpoint.configMu.Unlock()
 	s.endpoint.ipSetBuilder.AddPrefix(netaddr.MustParseIPPrefix(target))
 	s.endpoint.ipSet, _ = s.endpoint.ipSetBuilder.IPSet()
 
 	return nil
+}
+
+// HasRouteForIP checks the current session's routes under the configuration lock.
+func (s *Stack) HasRouteForIP(address net.IP) bool {
+	ip, ok := netaddr.FromStdIP(address)
+	if !ok {
+		return false
+	}
+	s.endpoint.configMu.RLock()
+	defer s.endpoint.configMu.RUnlock()
+	return s.endpoint.ipSet != nil && s.endpoint.ipSet.Contains(ip)
 }
 
 func (s *Stack) AddDnsServer(dnsServer string, targetHost string) error {

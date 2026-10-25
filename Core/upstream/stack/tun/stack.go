@@ -50,80 +50,112 @@ func (s *Stack) SetupIPPool(ipPool *ippool.IPPool[[]client.DomainResource]) {
 	s.ipPool = ipPool
 }
 
+// Prepare establishes the transport before the caller announces tunnel readiness.
+func (s *Stack) Prepare() error {
+	if s.l3Conn != nil {
+		return nil
+	}
+	var err error
+	s.l3Conn, err = s.endpoint.client.NewL3Conn()
+	return err
+}
+
+// Run preserves the upstream CLI entry point while supervised callers use RunContext.
 func (s *Stack) Run() {
+	if err := s.RunContext(context.Background()); err != nil && !hook_func.IsTerminal() {
+		panic(err)
+	}
+}
+
+// RunContext stops both packet pumps together and returns transport failures to the supervisor.
+func (s *Stack) RunContext(ctx context.Context) error {
 	if s.endpoint.client.CanUseTCPTunnel() {
-		err := s.CreateTCPListener()
-		if err != nil {
-			panic(err)
+		if err := s.CreateTCPListener(); err != nil {
+			return err
 		}
 		s.StartTCPListener()
 	}
-
-	var connErr error
-	s.l3Conn, connErr = s.endpoint.client.NewL3Conn()
-	if connErr != nil {
-		panic(connErr)
+	if err := s.Prepare(); err != nil {
+		return err
 	}
-	defer s.l3Conn.Close()
-
-	// Read from VPN server and send to TUN stack
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var closeOnce sync.Once
+	closeIO := func() {
+		closeOnce.Do(func() {
+			if closer, ok := s.endpoint.client.(interface{ Close() }); ok {
+				closer.Close()
+			}
+			_ = s.l3Conn.Close()
+			_ = s.endpoint.ifce.Close()
+		})
+	}
+	stopClose := context.AfterFunc(runCtx, closeIO)
+	defer stopClose()
+	receiveDone := make(chan struct{})
+	receiveError := make(chan error, 1)
 	go func() {
+		defer close(receiveDone)
+		defer cancel()
 		buf := make([]byte, maxInboundPacketSize+tun.PacketOffset)
 		for {
 			n, err := s.l3Conn.Read(buf)
 			if err != nil {
-				if hook_func.IsTerminal() {
-					return
-				}
-				panic(err)
+				receiveError <- err
+				return
 			}
-			log.DebugPrintf("Recv: read %d bytes", n)
-			log.DebugDumpHex(buf[:n])
-
-			err = s.endpoint.Write(buf[:n])
-			if err != nil {
-				if hook_func.IsTerminal() {
-					return
-				} else {
-					log.Printf("Error occurred while writing to TUN stack: %v", err)
-					panic(err)
-				}
+			if n == 0 {
+				receiveError <- io.ErrNoProgress
+				return
+			}
+			if err = s.endpoint.Write(buf[:n]); err != nil {
+				receiveError <- err
+				return
 			}
 		}
 	}()
-
-	// Read from TUN stack and send to VPN server
+	defer func() { cancel(); closeIO(); <-receiveDone }()
 	buf := make([]byte, MTU+tun.PacketOffset)
 	for {
 		n, err := s.endpoint.Read(buf)
 		if err != nil {
-			if hook_func.IsTerminal() {
-				return
-			} else {
-				log.Printf("Error occurred while reading from TUN stack: %v", err)
-				panic(err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			select {
+			case receiveErr := <-receiveError:
+				return receiveErr
+			default:
+				return err
 			}
 		}
-
+		if n == 0 {
+			return io.ErrNoProgress
+		}
 		if n < zctcpip.IPv4PacketMinLength {
 			continue
 		}
-
-		// whether this should be a blocking operation?
 		packet := buf[tun.PacketOffset:n]
 		switch ipVersion := packet[0] >> 4; ipVersion {
 		case zctcpip.IPv4Version:
 			err = s.processIPV4(packet)
 		default:
-			err = fmt.Errorf("unsupport IP version %d", ipVersion)
-		}
-		if err != nil {
-			log.DebugPrintf("Error occurred while processing IP packet: %v", err)
 			continue
 		}
-
+		if err != nil {
+			var failure *transportError
+			if errors.As(err, &failure) {
+				return failure.err
+			}
+			log.DebugPrintf("Error occurred while processing IP packet: %v", err)
+		}
 	}
 }
+
+type transportError struct{ err error }
+
+func (e *transportError) Error() string { return e.err.Error() }
+func (e *transportError) Unwrap() error { return e.err }
 
 func (s *Stack) processIPV4(packet zctcpip.IPv4Packet) error {
 	protocol := ""
@@ -235,7 +267,7 @@ func (s *Stack) processIPV4TCP(packet zctcpip.IPv4Packet, tcpPacket zctcpip.TCPP
 		if errors.Is(err, client.ErrResourceNotFound) {
 			return err
 		}
-		panic(err)
+		return &transportError{err: err}
 	}
 	log.DebugPrintf("Send: wrote %d bytes", n)
 	log.DebugDumpHex(packet[:n])
@@ -255,7 +287,7 @@ func (s *Stack) processIPV4UDP(packet zctcpip.IPv4Packet, udpPacket zctcpip.UDPP
 		if errors.Is(err, client.ErrResourceNotFound) {
 			return err
 		}
-		panic(err)
+		return &transportError{err: err}
 	}
 	log.DebugPrintf("Send: wrote %d bytes", n)
 	log.DebugDumpHex(packet[:n])
@@ -274,7 +306,7 @@ func (s *Stack) processIPV4ICMP(packet zctcpip.IPv4Packet, icmpHeader zctcpip.IC
 		if errors.Is(err, client.ErrResourceNotFound) {
 			return err
 		}
-		panic(err)
+		return &transportError{err: err}
 	}
 	log.DebugPrintf("Send: wrote %d bytes", n)
 	log.DebugDumpHex(packet[:n])
