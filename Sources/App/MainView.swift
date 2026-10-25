@@ -87,7 +87,7 @@ struct MainView: View {
         case .connecting, .reconnecting, .awaitingChallenge:
             Button("取消连接") { controller.disconnect() }.buttonStyle(.bordered)
         case .disconnecting:
-            Text("正在恢复网络设置…").font(.callout).foregroundColor(.secondary)
+            EmptyView()
         case .failed:
             HStack {
                 if controller.canEditCurrentConnection {
