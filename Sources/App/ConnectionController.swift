@@ -157,8 +157,10 @@ final class ConnectionController: ObservableObject {
         retryTask?.cancel()
         retryTask = nil
         retryCount = 0
-        perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { response in
-            completion?(response.ok && response.snapshot.state == .disconnected)
+        perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
+            let success = response.ok && response.snapshot.state == .disconnected
+            if success { self?.client.invalidate() }
+            completion?(success)
         }
     }
 
@@ -170,12 +172,7 @@ final class ConnectionController: ObservableObject {
             desiredRequest = nil
             client.invalidate()
             completion(true)
-        } else {
-            disconnect { [weak self] success in
-                if success { self?.client.invalidate() }
-                completion(success)
-            }
-        }
+        } else { disconnect(completion: completion) }
     }
 
     private func begin(_ request: ConnectionRequest, save: Bool) {

@@ -33,7 +33,8 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !quitting, let controller = Self.controller else { return .terminateNow }
+        if quitting { return .terminateLater }
+        guard let controller = Self.controller else { return .terminateNow }
         quitting = true
         DispatchQueue.main.async { [weak self] in
             controller.prepareToQuit { [weak self] success in
