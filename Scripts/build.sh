@@ -31,8 +31,22 @@ swiftc -swift-version 5 -O -parse-as-library -target arm64-apple-macosx13.0 \
     -o "$HELPERS/miniEasyConnectHelper"
 
 codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" --identifier "$APP_ID.helper" "$HELPERS/miniEasyConnectHelper"
-codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" --identifier "$APP_ID.core" "$HELPERS/minieasyconnect-core"
-TEAM_ID=$(codesign -dv --verbose=4 "$HELPERS/miniEasyConnectHelper" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+SIGN_INFO=$(codesign -dv --verbose=4 "$HELPERS/miniEasyConnectHelper" 2>&1)
+SIGN_AUTHORITY=$(printf '%s\n' "$SIGN_INFO" | sed -n 's/^Authority=//p' | head -n 1)
+# Inspect the actual signer so certificate names and hashes follow the same policy.
+case "$SIGN_AUTHORITY" in
+    "Apple Development:"*) SIGN_TIMESTAMP=--timestamp=none ;;
+    "Developer ID Application:"*)
+        SIGN_TIMESTAMP=--timestamp
+        codesign --force --options runtime "$SIGN_TIMESTAMP" --sign "$SIGN_ID" --identifier "$APP_ID.helper" "$HELPERS/miniEasyConnectHelper"
+        ;;
+    *)
+        echo '签名身份必须为 Apple Development 或 Developer ID Application。' >&2
+        exit 1
+        ;;
+esac
+codesign --force --options runtime "$SIGN_TIMESTAMP" --sign "$SIGN_ID" --identifier "$APP_ID.core" "$HELPERS/minieasyconnect-core"
+TEAM_ID=$(printf '%s\n' "$SIGN_INFO" | sed -n 's/^TeamIdentifier=//p')
 if [ -z "$TEAM_ID" ] || [ "$TEAM_ID" = not\ set ]; then
     echo '无法确定签名团队。' >&2
     exit 1
@@ -71,6 +85,6 @@ EOF
 cp "$PROJECT_ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$PROJECT_ROOT/Resources/ThirdParty/Tabler-LICENSE" "$APP/Contents/Resources/Tabler-LICENSE"
 python3 "$PROJECT_ROOT/Scripts/write-build-manifest.py" "$PROJECT_ROOT" "$APP"
-codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" "$APP"
+codesign --force --options runtime "$SIGN_TIMESTAMP" --sign "$SIGN_ID" "$APP"
 codesign --verify --deep --strict "$APP"
 echo "$APP"

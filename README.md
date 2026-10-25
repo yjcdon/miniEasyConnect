@@ -21,7 +21,7 @@
 open dist/miniEasyConnect.app
 ```
 
-默认选择本机可用的 Apple Development 或 Developer ID Application 签名身份；也可通过 `MINIEASY_SIGN_ID` 指定。私钥和证书不属于项目源码。开发签名的构建不等同于已公证的公开分发版本。
+默认选择本机可用的 Apple Development 或 Developer ID Application 签名身份；也可通过 `MINIEASY_SIGN_ID` 指定证书名称或哈希。构建依据辅助服务实际签名的证书类型选择时间戳：Apple Development 使用 `--timestamp=none`，无需访问时间戳服务；Developer ID Application 对应用、辅助服务和核心使用 `--timestamp`，需要联网访问 Apple 时间戳服务。私钥和证书不属于项目源码。脚本完成签名及校验，公证状态需另行确认；开发签名的构建不等同于已公证的公开分发版本。
 
 版本由 `VERSION` 和 `BUILD_NUMBER` 统一管理。应用内的 `Contents/Resources/BuildManifest.json` 记录同次构建的版本、源码提交及本地修改状态、上游基线、工具链和辅助服务/核心的 SHA-256；不包含本机路径或签名身份。源码归档没有 Git 元数据时，源码提交状态明确记为 `null`。清单由外层应用签名保护，内嵌文件可按哈希核对。
 
