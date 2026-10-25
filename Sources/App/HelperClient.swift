@@ -6,6 +6,7 @@ enum HelperClientError: LocalizedError {
     case unavailable
     case rejected(String)
     case registrationFailed(Error)
+    case unregistrationFailed(Error)
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +15,8 @@ enum HelperClientError: LocalizedError {
         case .rejected(let message): return message
         case .registrationFailed(let cause):
             return "后台服务未能启用（错误 \((cause as NSError).code)）。请确认应用位于“应用程序”文件夹，并检查系统后台服务授权。"
+        case .unregistrationFailed(let cause):
+            return "后台服务未能停用（错误 \((cause as NSError).code)）。连接已断开，请重试停用。"
         }
     }
 }
@@ -26,6 +29,7 @@ final class HelperClient: NSObject, HelperObserver {
     private let service = SMAppService.daemon(plistName: AppIdentity.helperPlistName)
 
     var hasServiceConnection: Bool { connection != nil }
+    var isServiceEnabled: Bool { service.status == .enabled }
 
     func authorize() throws {
         if service.status == .notRegistered || service.status == .notFound {
@@ -48,6 +52,24 @@ final class HelperClient: NSObject, HelperObserver {
     }
 
     func openAuthorizationSettings() { SMAppService.openSystemSettingsLoginItems() }
+
+    /// Unregisters only after the controller has confirmed complete network cleanup.
+    func unregister(completion: @escaping (Result<Void, Error>) -> Void) {
+        invalidate()
+        if service.status == .notRegistered || service.status == .notFound {
+            completion(.success(()))
+            return
+        }
+        service.unregister { [service] error in
+            DispatchQueue.main.async {
+                if let error, service.status != .notRegistered && service.status != .notFound {
+                    completion(.failure(HelperClientError.unregistrationFailed(error)))
+                } else {
+                    completion(.success(()))
+                }
+            }
+        }
+    }
 
     func invalidate() {
         let previous = connection

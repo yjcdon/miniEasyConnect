@@ -16,6 +16,7 @@ final class ConnectionController: ObservableObject {
     @Published var noteEditingProfile: ConnectionProfile?
     @Published var noteEditorError: String?
     @Published var isPerformingCommand = false
+    @Published private(set) var isDisablingHelper = false
 
     private let client = HelperClient()
     private var store: ProfileStore?
@@ -62,7 +63,7 @@ final class ConnectionController: ObservableObject {
     }
 
     var isBusy: Bool {
-        isPerformingCommand || [.connecting, .awaitingAuthorization, .awaitingChallenge, .reconnecting, .disconnecting].contains(snapshot.state)
+        isPerformingCommand || isDisablingHelper || [.connecting, .awaitingAuthorization, .awaitingChallenge, .reconnecting, .disconnecting].contains(snapshot.state)
     }
 
     var hasConnection: Bool {
@@ -202,6 +203,7 @@ final class ConnectionController: ObservableObject {
     }
 
     func prepareToQuit(_ completion: @escaping (Bool) -> Void) {
+        guard !isDisablingHelper else { completion(false); return }
         retryTask?.cancel()
         stoppedByUser = true
         let noServiceStarted = snapshot.state == .failed && !client.hasServiceConnection
@@ -212,8 +214,60 @@ final class ConnectionController: ObservableObject {
         } else { disconnect(completion: completion) }
     }
 
+    /// A deliberate maintenance action; normal disconnect and quit keep the system approval registered.
+    func confirmDisableHelper() {
+        guard !isPerformingCommand, !isDisablingHelper, snapshot.state != .disconnecting else { return }
+        let alert = NSAlert()
+        alert.messageText = "停用后台服务？"
+        alert.informativeText = "这会断开当前 VPN 并恢复网络设置。再次连接时会重新启用服务，可能需要系统批准。已保存的连接记录会保留。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "停用后台服务")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard !isPerformingCommand, !isDisablingHelper, snapshot.state != .disconnecting else {
+            errorMessage = "连接操作正在完成，请稍后重试停用后台服务。"
+            return
+        }
+        disableHelper()
+    }
+
+    /// Clears reconnect intent and unregisters only after the helper confirms complete network restoration.
+    private func disableHelper() {
+        isDisablingHelper = true
+        errorMessage = nil
+        stoppedByUser = true
+        desiredRequest = nil
+        saveOnSuccess = false
+        retryTask?.cancel()
+        retryTask = nil
+        retryCount = 0
+        let unregister: (Bool) -> Void = { [weak self] cleaned in
+            guard let self else { return }
+            guard cleaned else {
+                self.isDisablingHelper = false
+                self.errorMessage = self.snapshot.message ?? "网络尚未恢复，后台服务未停用。请先重试断开。"
+                return
+            }
+            self.client.unregister { [weak self] result in
+                guard let self else { return }
+                self.isDisablingHelper = false
+                switch result {
+                case .success:
+                    self.snapshot = ConnectionSnapshot(state: .disconnected, message: "后台服务已停用，下次连接时会重新启用。")
+                case .failure(let error): self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+        // Even a newly opened window must ask an enabled helper to finish any previous recovery.
+        if client.isServiceEnabled || client.hasServiceConnection || hasConnection {
+            disconnect(completion: unregister)
+        } else {
+            unregister(true)
+        }
+    }
+
     private func begin(_ request: ConnectionRequest, save: Bool) {
-        guard !isPerformingCommand else { return }
+        guard !isPerformingCommand, !isDisablingHelper else { return }
         errorMessage = nil
         stoppedByUser = false
         retryTask?.cancel()

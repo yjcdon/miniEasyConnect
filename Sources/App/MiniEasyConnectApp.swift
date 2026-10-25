@@ -15,8 +15,12 @@ struct MiniEasyConnectApp: App {
         .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .appTermination) {
+                Button("停用后台服务…") { controller.confirmDisableHelper() }
+                    .disabled(controller.isPerformingCommand || controller.isDisablingHelper || controller.snapshot.state == .disconnecting)
+                Divider()
                 Button("退出 miniEasyConnect") { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q")
+                    .disabled(controller.isDisablingHelper)
             }
         }
         MenuBarExtra("miniEasyConnect", systemImage: "network") {
@@ -69,6 +73,7 @@ private struct ConnectionMenu: View {
         } else {
             ForEach(controller.profiles) { profile in
                 Button("连接 \(profile.displayName)") { controller.connect(profile) }
+                    .disabled(controller.isBusy)
             }
         }
         Divider()
