@@ -194,12 +194,6 @@ private struct ConnectionEditor: View {
                 }
             }
             .textFieldStyle(.roundedBorder)
-            HStack {
-                Image(systemName: "lock").foregroundColor(.secondary)
-                Text("密码仅保存到这台 Mac 的系统钥匙串。")
-                    .font(.caption).foregroundColor(.secondary)
-                Spacer()
-            }
             if let error = controller.editorError {
                 Text(error).font(.callout).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
             }
