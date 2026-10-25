@@ -155,34 +155,36 @@ func NewStack(vpnClient client.Client, dnsHijack, fakeIP bool, ipResources []cli
 	s.endpoint.ifceIndex = netIfce.Index
 	log.Printf("Interface Name: %s, index %d\n", tunName, netIfce.Index)
 
-	// We need this dialer to bind to device otherwise packets will not be sent via TUN
-	// Doesn't work on macOS. See  https://github.com/Mythologyli/zju-connect/pull/44#issuecomment-1784050022
+	// Bind tunnel-originated sockets to this interface as well as its source address.
 	s.endpoint.tcpDialer = &net.Dialer{
 		LocalAddr: &net.TCPAddr{
 			IP:   s.endpoint.ip,
 			Port: 0,
 		},
-		Control: func(network, address string, c syscall.RawConn) error { // By ChenXuzheng
-			return c.Control(func(fd uintptr) {
-				if err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVIF, s.endpoint.ifceIndex); err != nil {
-					log.Println("Warning: failed to bind to interface", s.endpoint.ifceName)
-				}
-			})
+		Control: func(network, address string, c syscall.RawConn) error {
+			var bindErr error
+			if err := c.Control(func(fd uintptr) {
+				bindErr = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_BOUND_IF, s.endpoint.ifceIndex)
+			}); err != nil {
+				return err
+			}
+			return bindErr
 		},
 	}
 
-	// Doesn't work on macOS. See  https://github.com/Mythologyli/zju-connect/pull/44#issuecomment-1784050022
 	s.endpoint.udpDialer = &net.Dialer{
 		LocalAddr: &net.UDPAddr{
 			IP:   s.endpoint.ip,
 			Port: 0,
 		},
-		Control: func(network, address string, c syscall.RawConn) error { // By ChenXuzheng
-			return c.Control(func(fd uintptr) {
-				if err = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVIF, s.endpoint.ifceIndex); err != nil {
-					log.Println("Warning: failed to bind to interface", s.endpoint.ifceName)
-				}
-			})
+		Control: func(network, address string, c syscall.RawConn) error {
+			var bindErr error
+			if err := c.Control(func(fd uintptr) {
+				bindErr = unix.SetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_BOUND_IF, s.endpoint.ifceIndex)
+			}); err != nil {
+				return err
+			}
+			return bindErr
 		},
 	}
 	if dnsHijack {
