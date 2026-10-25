@@ -2,7 +2,7 @@
 
 轻量的 Apple 芯片 Mac VPN 客户端。SwiftUI 原生界面，复用 [ZJU Connect](https://github.com/Mythologyli/zju-connect) 核心，通过 TUN 让应用直接访问授权内网。
 
-开发进行中。实际支持范围与资源占用将在集成验证后公布。
+开发进行中。当前应用只接入 EasyConnect 协议；上游的 aTrust 能力尚未接入本应用。已在 Apple 芯片、macOS 27.0.1 上验证实际连接；其他系统版本与完整资源表现见验收记录。
 
 最终应用包自带已编译核心，日常使用不需要安装 Go 或操作命令行。
 
