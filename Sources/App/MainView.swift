@@ -150,7 +150,7 @@ struct MainView: View {
             Menu {
                 Button("修改备注") { controller.editNote(profile) }
                 Button("修改连接") { controller.edit(profile) }
-                Button("删除", role: .destructive) { controller.delete(profile) }
+                Button("删除", role: .destructive) { controller.confirmDelete(profile) }
             } label: { Image(systemName: "ellipsis") }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
