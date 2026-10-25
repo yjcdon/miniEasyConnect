@@ -1,0 +1,15 @@
+.DS_Store
+.build/
+dist/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+*.p12
+*.mobileprovision
+.env
+.env.*
+*.log
+*.pcap
+*.pcapng
+*.key
+local/
