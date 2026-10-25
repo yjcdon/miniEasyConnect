@@ -25,6 +25,8 @@ final class HelperClient: NSObject, HelperObserver {
     private var connection: NSXPCConnection?
     private let service = SMAppService.daemon(plistName: AppIdentity.helperPlistName)
 
+    var hasServiceConnection: Bool { connection != nil }
+
     func authorize() throws {
         if service.status == .notRegistered || service.status == .notFound {
             do { try service.register() }

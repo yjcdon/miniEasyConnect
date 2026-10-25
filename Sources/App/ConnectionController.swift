@@ -165,7 +165,8 @@ final class ConnectionController: ObservableObject {
     func prepareToQuit(_ completion: @escaping (Bool) -> Void) {
         retryTask?.cancel()
         stoppedByUser = true
-        if [.disconnected, .awaitingAuthorization].contains(snapshot.state) && !isPerformingCommand {
+        let noServiceStarted = snapshot.state == .failed && !client.hasServiceConnection
+        if ([.disconnected, .awaitingAuthorization].contains(snapshot.state) || noServiceStarted) && !isPerformingCommand {
             desiredRequest = nil
             client.invalidate()
             completion(true)
