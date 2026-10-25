@@ -15,17 +15,25 @@ enum HelperFailure: LocalizedError {
 private struct NetworkJournal: Codable {
     var active: Bool
     var sessionID: String
-    var serviceID: String
+    var serviceID: String?
     var originalDNS: Data?
     var appliedDNS: Data?
+    var vpnDNSKey: String?
     var interfaceName: String?
     var routes: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case active, sessionID, serviceID, originalDNS, appliedDNS, interfaceName, routes
+        // Keep the existing journal key so unfinished sessions remain recoverable.
+        case vpnDNSKey = "splitDNSKey"
+    }
 }
 
-/// Keeps the original DNS configuration outside the core process so a crashed tunnel can be cleaned up.
+/// Owns the temporary VPN DNS resolver and persists enough state to clean up a crashed tunnel.
 final class NetworkRecovery {
     private let journalURL: URL
     private var journal: NetworkJournal?
+    private var dnsStore: SCDynamicStore?
 
     init() throws {
         let directory = URL(fileURLWithPath: "/Library/Application Support/miniEasyConnect", isDirectory: true)
@@ -37,19 +45,14 @@ final class NetworkRecovery {
         }
     }
 
-    /// Captures configured DNS, including the distinction between static addresses and automatic configuration.
+    /// Starts a recovery journal without changing the current network service or its DNS settings.
     func begin(sessionID: String) throws {
         try restore()
-        guard let store = SCDynamicStoreCreate(nil, "miniEasyConnect" as CFString, nil, nil),
-              let state = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
-              let serviceID = state["PrimaryService"] as? String else {
-            throw HelperFailure.operation("当前没有可用的网络连接。")
+        guard UUID(uuidString: sessionID) != nil else {
+            throw HelperFailure.invalidRequest("网络会话标识无效。")
         }
-        let preferences = try makePreferences()
-        let dns = try dnsProtocol(preferences, serviceID: serviceID)
-        let original = SCNetworkProtocolGetConfiguration(dns) as? [String: Any]
-        journal = NetworkJournal(active: true, sessionID: sessionID, serviceID: serviceID,
-                                 originalDNS: try encodeDictionary(original), appliedDNS: nil,
+        journal = NetworkJournal(active: true, sessionID: sessionID, serviceID: nil,
+                                 originalDNS: nil, appliedDNS: nil, vpnDNSKey: nil,
                                  interfaceName: nil, routes: [])
         try save()
     }
@@ -67,32 +70,55 @@ final class NetworkRecovery {
         try save()
     }
 
-    /// Changes DNS only after the local listener is ready; the applied value is journaled before committing.
-    func applyDNS(address: String) throws {
-        var parsed = in_addr()
-        guard inet_pton(AF_INET, address, &parsed) == 1, journal?.active == true else {
-            throw HelperFailure.invalidRequest("核心返回了无效的 DNS 地址。")
+    /// Gives VPN DNS priority for all domains once its loopback listener is ready, without changing service preferences.
+    func applyVPNDNS(address: String, port: Int) throws {
+        guard address == "127.0.0.1", (1024...65535).contains(port) else {
+            throw HelperFailure.invalidRequest("核心返回了无效的 VPN DNS 配置。")
+        }
+        guard let record = journal, record.active, record.vpnDNSKey == nil else {
+            throw HelperFailure.operation("网络恢复记录尚未建立或 DNS 已配置。")
+        }
+        let store = try makeDNSStore()
+        let key = resolverKey(sessionID: record.sessionID)
+        let configuration: [String: Any] = [
+            kSCPropNetDNSServerAddresses as String: [address],
+            kSCPropNetDNSServerPort as String: port,
+            kSCPropNetDNSSupplementalMatchDomains as String: [""],
+            "SupplementalMatchDomainsNoSearch": 1
+        ]
+        // Persist ownership before publishing, and retain the store for the lifetime of the resolver.
+        journal!.vpnDNSKey = key
+        try save()
+        dnsStore = store
+        guard SCDynamicStoreAddTemporaryValue(store, key as CFString, configuration as CFDictionary) else {
+            throw HelperFailure.operation("无法建立 VPN DNS 优先配置。")
+        }
+    }
+
+    /// Withdraws this session's resolver before core shutdown; also recovers legacy network-service DNS journals.
+    func restoreDNS() throws {
+        guard let record = journal, record.active else { return }
+        if let key = record.vpnDNSKey {
+            guard UUID(uuidString: record.sessionID) != nil,
+                  key == resolverKey(sessionID: record.sessionID) else {
+                throw HelperFailure.operation("网络恢复记录中的 DNS 会话无效。")
+            }
+            let store = try dnsStore ?? makeDNSStore()
+            guard SCDynamicStoreRemoveValue(store, key as CFString) || SCError() == kSCStatusNoKey else {
+                throw HelperFailure.operation("VPN DNS 优先配置未能清理，请重新启动应用恢复网络。")
+            }
+            journal!.vpnDNSKey = nil
+            try save()
+            dnsStore = nil
+        }
+        guard let applied = try decodeDictionary(record.appliedDNS) else { return }
+        guard let serviceID = record.serviceID else {
+            throw HelperFailure.operation("旧网络恢复记录缺少网络服务。")
         }
         let preferences = try makePreferences()
         try lock(preferences)
         defer { SCPreferencesUnlock(preferences) }
-        let dns = try dnsProtocol(preferences, serviceID: journal!.serviceID)
-        let current = SCNetworkProtocolGetConfiguration(dns) as? [String: Any]
-        journal!.originalDNS = try encodeDictionary(current)
-        var configuration = current ?? [:]
-        configuration[kSCPropNetDNSServerAddresses as String] = [address]
-        journal!.appliedDNS = try encodeDictionary(configuration)
-        try save()
-        try setDNS(configuration, protocol: dns, preferences: preferences)
-    }
-
-    /// Restores DNS before the core stops. A configuration changed by another application is preserved.
-    func restoreDNS() throws {
-        guard let record = journal, record.active, let applied = try decodeDictionary(record.appliedDNS) else { return }
-        let preferences = try makePreferences()
-        try lock(preferences)
-        defer { SCPreferencesUnlock(preferences) }
-        let dns = try dnsProtocol(preferences, serviceID: record.serviceID)
+        let dns = try dnsProtocol(preferences, serviceID: serviceID)
         let current = SCNetworkProtocolGetConfiguration(dns) as? [String: Any]
         let original = try decodeDictionary(record.originalDNS)
         let key = kSCPropNetDNSServerAddresses as String
@@ -135,6 +161,17 @@ final class NetworkRecovery {
         try finish()
     }
 
+    private func resolverKey(sessionID: String) -> String {
+        "State:/Network/Service/miniEasyConnect-\(sessionID)/DNS"
+    }
+
+    private func makeDNSStore() throws -> SCDynamicStore {
+        guard let store = SCDynamicStoreCreate(nil, "miniEasyConnect.vpnDNS" as CFString, nil, nil) else {
+            throw HelperFailure.operation("无法访问系统 VPN DNS 配置。")
+        }
+        return store
+    }
+
     private func makePreferences() throws -> SCPreferences {
         guard let preferences = SCPreferencesCreate(nil, "miniEasyConnect" as CFString, nil) else {
             throw HelperFailure.operation("无法读取系统网络配置。")
@@ -168,11 +205,6 @@ final class NetworkRecovery {
     private func save() throws {
         try JSONEncoder().encode(journal).write(to: journalURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
-    }
-
-    private func encodeDictionary(_ dictionary: [String: Any]?) throws -> Data? {
-        guard let dictionary else { return nil }
-        return try PropertyListSerialization.data(fromPropertyList: dictionary, format: .binary, options: 0)
     }
 
     private func decodeDictionary(_ data: Data?) throws -> [String: Any]? {

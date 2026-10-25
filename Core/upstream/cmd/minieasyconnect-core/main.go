@@ -65,6 +65,7 @@ type event struct {
 	Message           string   `json:"message,omitempty"`
 	InterfaceName     string   `json:"interfaceName,omitempty"`
 	DNSAddress        string   `json:"dnsAddress,omitempty"`
+	DNSPort           int      `json:"dnsPort,omitempty"`
 	Routes            []string `json:"routes,omitempty"`
 	ChallengeID       string   `json:"challengeID,omitempty"`
 	ChallengeKind     string   `json:"challengeKind,omitempty"`
@@ -309,27 +310,18 @@ func (s *session) run(c configuration) error {
 	}
 	runErrors := make(chan error, 1)
 	go func() { runErrors <- st.RunContext(s.ctx) }()
-	// SO_REUSEADDR permits the concrete loopback address beside a wildcard
-	// listener on Darwin; SO_REUSEPORT remains disabled so exact binds conflict.
-	listenConfig := net.ListenConfig{Control: func(network, address string, raw syscall.RawConn) error {
-		var socketErr error
-		if err := raw.Control(func(fd uintptr) {
-			socketErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-		}); err != nil {
-			return err
-		}
-		return socketErr
-	}}
-	udp, err := listenConfig.ListenPacket(s.ctx, "udp4", net.JoinHostPort(localDNSAddress, "53"))
-	if err != nil {
-		return fmt.Errorf("DNS listener: %w", err)
-	}
-	defer udp.Close()
-	tcp, err := net.Listen("tcp4", net.JoinHostPort(localDNSAddress, "53"))
+	// Reserve one private loopback port for both DNS transports without touching port 53.
+	tcp, err := net.Listen("tcp4", net.JoinHostPort(localDNSAddress, "0"))
 	if err != nil {
 		return fmt.Errorf("DNS listener: %w", err)
 	}
 	defer tcp.Close()
+	dnsPort := tcp.Addr().(*net.TCPAddr).Port
+	udp, err := net.ListenPacket("udp4", net.JoinHostPort(localDNSAddress, fmt.Sprint(dnsPort)))
+	if err != nil {
+		return fmt.Errorf("DNS listener: %w", err)
+	}
+	defer udp.Close()
 	udpServer := &dns.Server{PacketConn: udp, Handler: forwarder}
 	tcpServer := &dns.Server{Listener: tcp, Handler: forwarder}
 	defer udpServer.Shutdown()
@@ -344,7 +336,7 @@ func (s *session) run(c configuration) error {
 	checkCtx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
 	readiness := make(chan error, 1)
-	go func() { _, probeErr := forwarder.HandleDnsMsg(checkCtx, check); readiness <- probeErr }()
+	go func() { _, probeErr := forwarder.forward(checkCtx, check, false); readiness <- probeErr }()
 	select {
 	case err = <-readiness:
 		select {
@@ -363,7 +355,7 @@ func (s *session) run(c configuration) error {
 		return s.ctx.Err()
 	}
 	cancel()
-	s.emit(event{Kind: "ready", InterfaceName: st.InterfaceName(), DNSAddress: localDNSAddress, Routes: routes, CertificateSHA256: pinnedCertificate})
+	s.emit(event{Kind: "ready", InterfaceName: st.InterfaceName(), DNSAddress: localDNSAddress, DNSPort: dnsPort, Routes: routes, CertificateSHA256: pinnedCertificate})
 	select {
 	case <-s.ctx.Done():
 		return s.ctx.Err()
@@ -421,13 +413,9 @@ type dnsForwarder struct {
 	capacity chan struct{}
 }
 
-func (f *dnsForwarder) CheckDnsHijack(ip net.IP) bool {
-	for _, address := range f.servers {
-		if ip.Equal(address) {
-			return false
-		}
-	}
-	return true
+// CheckDnsHijack leaves DNS selection to macOS supplemental resolvers.
+func (f *dnsForwarder) CheckDnsHijack(net.IP) bool {
+	return false
 }
 
 // ipv4DNSServers preserves server policy order, removes duplicates and excludes unsupported IPv6 entries.
@@ -455,8 +443,14 @@ func ipv4DNSServers(values []string) ([]net.IP, error) {
 	return addresses, nil
 }
 
-// HandleDnsMsg forwards complete DNS messages through the tunnel, without a public fallback.
+// HandleDnsMsg applies static answers, then queries the VPN DNS for every other name.
+// Resource lists describe authorization, not a complete DNS namespace.
 func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	return f.forward(ctx, m, true)
+}
+
+// forward shares the tunnel budget; readiness bypasses static answers and domain routing.
+func (f *dnsForwarder) forward(ctx context.Context, m *dns.Msg, useStatic bool) (*dns.Msg, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	stopSession := context.AfterFunc(f.ctx, cancel)
@@ -498,7 +492,7 @@ func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, 
 	}
 	var response *dns.Msg
 	var err error
-	if len(m.Question) == 1 && (m.Question[0].Qtype == dns.TypeA || m.Question[0].Qtype == dns.TypeAAAA) {
+	if useStatic && len(m.Question) == 1 && (m.Question[0].Qtype == dns.TypeA || m.Question[0].Qtype == dns.TypeAAAA) {
 		q := m.Question[0]
 		name := strings.ToLower(strings.TrimSuffix(q.Name, "."))
 		if addresses, ok := f.static[name]; ok {
@@ -543,6 +537,9 @@ func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, 
 	}
 	if err != nil {
 		return nil, err
+	}
+	if !useStatic {
+		return response, nil
 	}
 	for _, question := range m.Question {
 		resources, matched := f.resolver.MatchDomainResources(question.Name)

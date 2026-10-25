@@ -27,6 +27,7 @@ private struct CoreEvent: Decodable {
     let message: String?
     let interfaceName: String?
     let dnsAddress: String?
+    let dnsPort: Int?
     let routes: [String]?
     let challengeID: String?
     let challengeKind: String?
@@ -307,10 +308,10 @@ final class CoreSupervisor {
                                                                message: event.message, imageBase64: event.imageBase64,
                                                                certificateSHA256: event.certificateSHA256)))
         case "ready":
-            guard let address = event.dnsAddress else {
+            guard let address = event.dnsAddress, let port = event.dnsPort else {
                 throw HelperFailure.operation("核心未提供 DNS 配置。")
             }
-            try recovery!.applyDNS(address: address)
+            try recovery!.applyVPNDNS(address: address, port: port)
             connectDeadline?.cancel()
             update(ConnectionSnapshot(state: .connected, sessionID: event.sessionID))
         case "failed": stop(failure: safeMessage(code: event.code), retryable: event.code == "connectionFailed")

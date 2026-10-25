@@ -57,6 +57,7 @@ func (c *Client) parseLineListFromConfig(config string) error {
 	return nil
 }
 
+// parseResources reads tunnel authorization resources and static DNS answers independently.
 func (c *Client) parseResources(resources string) error {
 	log.DebugPrintf("Resources: %s", resources)
 
@@ -166,13 +167,13 @@ func (c *Client) parseResources(resources string) error {
 						host = strings.Split(host, "//")[1]
 					}
 					host = strings.Split(host, "/")[0]
-					host = strings.ReplaceAll(host, "*", "")
 					if strings.Contains(host, ":") {
 						host, hostPort, err = net.SplitHostPort(host)
 					}
 					ipMin = net.ParseIP(host)
 					if ipMin == nil {
 						isDomain = true
+						host = strings.ToLower(strings.TrimSuffix(strings.ReplaceAll(host, "*", ""), "."))
 
 						if !c.useDomainResource {
 							continue
@@ -235,7 +236,9 @@ func (c *Client) parseResources(resources string) error {
 			continue
 		}
 
-		c.dnsResource[dnsParts[1]] = append(c.dnsResource[dnsParts[1]], ip.IPAddr().IP)
+		// Dns.data retains the upstream name-to-IP mapping contract; its first field is opaque.
+		name := strings.ToLower(strings.TrimSuffix(dnsParts[1], "."))
+		c.dnsResource[name] = append(c.dnsResource[name], ip.IPAddr().IP)
 		log.DebugPrintf("Add DNS rule: %s -> %s", dnsParts[1], dnsParts[2])
 	}
 
