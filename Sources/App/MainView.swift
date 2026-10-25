@@ -20,6 +20,9 @@ struct MainView: View {
         .sheet(isPresented: $controller.showingEditor) {
             ConnectionEditor(controller: controller, profile: controller.editingProfile)
         }
+        .sheet(item: $controller.noteEditingProfile) { profile in
+            ConnectionNoteEditor(controller: controller, profile: profile)
+        }
         .sheet(isPresented: Binding(
             get: { controller.snapshot.state == .awaitingChallenge && controller.snapshot.challenge != nil },
             set: { if !$0 && controller.snapshot.state == .awaitingChallenge { controller.disconnect() } }
@@ -126,8 +129,9 @@ struct MainView: View {
         HStack(spacing: 12) {
             Image(systemName: "server.rack").foregroundColor(.secondary).font(.title3)
             VStack(alignment: .leading, spacing: 4) {
-                Text(profile.serverHost).font(.system(.body, design: .rounded)).lineLimit(1)
-                Text(profile.username).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                Text(profile.displayName).font(.system(.body, design: .rounded)).lineLimit(1)
+                Text("\(profile.serverHost):\(String(profile.serverPort)) · \(profile.username)")
+                    .font(.caption).foregroundColor(.secondary).lineLimit(2)
             }
             Spacer()
             if controller.activeProfile?.id == profile.id && controller.snapshot.state == .connected {
@@ -136,13 +140,14 @@ struct MainView: View {
                 Button("连接") { controller.connect(profile) }.disabled(controller.isBusy)
             }
             Menu {
-                Button("修改") { controller.edit(profile) }
+                Button("修改备注") { controller.editNote(profile) }
+                Button("修改连接") { controller.edit(profile) }
                 Button("删除", role: .destructive) { controller.delete(profile) }
             } label: { Image(systemName: "ellipsis") }
             .menuStyle(.borderlessButton)
             .fixedSize()
             .disabled(controller.isBusy)
-            .accessibilityLabel("管理 \(profile.serverHost)")
+            .accessibilityLabel("管理 \(profile.displayName)")
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -160,9 +165,44 @@ struct MainView: View {
     private var statusDescription: String {
         if let message = controller.snapshot.message, !message.isEmpty { return message }
         if controller.snapshot.state == .connected, let profile = controller.activeProfile {
-            return "\(profile.serverHost)\n现在可以直接访问授权内网。"
+            return "\(profile.displayName)\n现在可以直接访问授权内网。"
         }
         return "连接后即可使用内网，关闭窗口仍保持连接。"
+    }
+}
+
+private struct ConnectionNoteEditor: View {
+    @ObservedObject var controller: ConnectionController
+    let profile: ConnectionProfile
+    @ViewState private var note = ""
+    @FocusState private var noteFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("修改备注").font(.title2.bold())
+            Text("\(profile.serverHost):\(String(profile.serverPort)) · \(profile.username)")
+                .font(.callout).foregroundColor(.secondary)
+            TextField("", text: $note)
+                .textFieldStyle(.roundedBorder)
+                .focused($noteFocused)
+                .accessibilityLabel("备注")
+            if let error = controller.noteEditorError {
+                Text(error).font(.callout).foregroundColor(.orange)
+            }
+            HStack {
+                Spacer()
+                Button("取消") { controller.noteEditingProfile = nil }.keyboardShortcut(.cancelAction)
+                Button("保存") { controller.saveNote(profile, note: note) }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 380)
+        .onAppear {
+            note = profile.note ?? ""
+            noteFocused = true
+        }
     }
 }
 
@@ -172,8 +212,9 @@ private struct ConnectionEditor: View {
     @ViewState private var address = ""
     @ViewState private var username = ""
     @ViewState private var password = ""
+    @ViewState private var note = ""
     @FocusState private var focusedField: Field?
-    private enum Field { case address, username, password }
+    private enum Field { case address, username, password, note }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -198,6 +239,11 @@ private struct ConnectionEditor: View {
                         .focused($focusedField, equals: .password)
                         .accessibilityLabel("密码")
                 }
+                field("备注（可选）") {
+                    TextField("", text: $note)
+                        .focused($focusedField, equals: .note)
+                        .accessibilityLabel("备注")
+                }
             }
             .textFieldStyle(.roundedBorder)
             if let error = controller.editorError {
@@ -208,7 +254,7 @@ private struct ConnectionEditor: View {
                 Button("取消") { controller.showingEditor = false }
                     .keyboardShortcut(.cancelAction)
                 Button("连接并保存") {
-                    controller.connect(address: address, username: username, password: password, replacing: profile)
+                    controller.connect(address: address, username: username, password: password, note: note, replacing: profile)
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -221,6 +267,7 @@ private struct ConnectionEditor: View {
             if let profile {
                 address = profile.serverHost + ":" + String(profile.serverPort)
                 username = profile.username
+                note = profile.note ?? ""
                 do { password = try controller.passwordForEditing(profile) }
                 catch { controller.editorError = error.localizedDescription }
                 focusedField = .password

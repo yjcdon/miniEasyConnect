@@ -22,6 +22,12 @@ struct ConnectionProfile: Codable, Identifiable, Equatable {
     var serverPort: Int
     var username: String
     var credentialRef: String
+    var note: String? = nil
+
+    var displayName: String {
+        if let note, !note.isEmpty { return note }
+        return serverHost
+    }
 }
 
 struct ConnectionRequest: Codable {

@@ -9,6 +9,7 @@ enum ProfileStoreError: LocalizedError {
     case keychain(OSStatus)
     case cleanupFailed
     case duplicateConnection
+    case recordNotFound
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +23,7 @@ enum ProfileStoreError: LocalizedError {
             return "无法访问系统钥匙串（\(status)）。"
         case .cleanupFailed: return "连接记录已保存，但旧凭据未能清理。请重新保存或删除该记录。"
         case .duplicateConnection: return "已有相同地址和账号的连接记录，请直接使用已有记录。"
+        case .recordNotFound: return "这条连接记录已不存在，请重新选择。"
         }
     }
 }
@@ -51,7 +53,7 @@ final class ProfileStore {
     }
 
     /// Normalizes the address boundary while preserving the account case and secret exactly.
-    func profile(address: String, username: String, replacing original: ConnectionProfile?) throws -> ConnectionProfile {
+    func profile(address: String, username: String, note: String? = nil, replacing original: ConnectionProfile?) throws -> ConnectionProfile {
         let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
         let input = text.contains("://") ? text : "https://" + text
         guard let parts = URLComponents(string: input), parts.scheme?.lowercased() == "https",
@@ -66,7 +68,8 @@ final class ProfileStore {
             throw ProfileStoreError.missingUsername
         }
         let profile = ConnectionProfile(id: original?.id ?? UUID(), serverHost: host.lowercased(),
-            serverPort: parts.port ?? 443, username: username, credentialRef: original?.credentialRef ?? UUID().uuidString)
+            serverPort: parts.port ?? 443, username: username, credentialRef: original?.credentialRef ?? UUID().uuidString,
+            note: normalizedNote(note))
         try validateUniqueEdit(profile, among: load())
         return profile
     }
@@ -94,7 +97,8 @@ final class ProfileStore {
             $0.serverHost == profile.serverHost && $0.serverPort == profile.serverPort && $0.username == profile.username
         })
         let saved = ConnectionProfile(id: existing?.id ?? profile.id, serverHost: profile.serverHost,
-            serverPort: profile.serverPort, username: profile.username, credentialRef: UUID().uuidString)
+            serverPort: profile.serverPort, username: profile.username, credentialRef: UUID().uuidString,
+            note: normalizedNote(profile.note))
         var query = credentialQuery(saved.credentialRef)
         query[kSecValueData as String] = Data(password.utf8)
         query[kSecAttrLabel as String] = "miniEasyConnect"
@@ -125,6 +129,17 @@ final class ProfileStore {
         }
     }
 
+    /// Updates only display metadata, keeping credentials and connection identity untouched.
+    func updateNote(_ profile: ConnectionProfile, note: String?) throws -> ConnectionProfile {
+        var profiles = try load()
+        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else {
+            throw ProfileStoreError.recordNotFound
+        }
+        profiles[index].note = normalizedNote(note)
+        try write(profiles)
+        return profiles[index]
+    }
+
     private func write(_ profiles: [ConnectionProfile]) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
@@ -139,6 +154,11 @@ final class ProfileStore {
         if profiles.contains(where: {
             $0.id != profile.id && $0.serverHost == profile.serverHost && $0.serverPort == profile.serverPort && $0.username == profile.username
         }) { throw ProfileStoreError.duplicateConnection }
+    }
+
+    private func normalizedNote(_ note: String?) -> String? {
+        guard let note = note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else { return nil }
+        return note
     }
 
     private func credentialQuery(_ reference: String) -> [String: Any] {

@@ -57,7 +57,7 @@ private struct ConnectionMenu: View {
 
     var body: some View {
         Text(controller.stateTitle)
-        if let profile = controller.activeProfile { Text(profile.serverHost) }
+        if let profile = controller.activeProfile { Text(profile.displayName) }
         Divider()
         Button("打开 miniEasyConnect") {
             openWindow(id: "main")
@@ -68,7 +68,7 @@ private struct ConnectionMenu: View {
                 .disabled(controller.snapshot.state == .disconnecting)
         } else {
             ForEach(controller.profiles) { profile in
-                Button("连接 \(profile.serverHost)") { controller.connect(profile) }
+                Button("连接 \(profile.displayName)") { controller.connect(profile) }
             }
         }
         Divider()

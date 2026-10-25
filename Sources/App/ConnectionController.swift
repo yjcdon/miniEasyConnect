@@ -13,6 +13,8 @@ final class ConnectionController: ObservableObject {
     @Published var editorError: String?
     @Published var showingEditor = false
     @Published var editingProfile: ConnectionProfile?
+    @Published var noteEditingProfile: ConnectionProfile?
+    @Published var noteEditorError: String?
     @Published var isPerformingCommand = false
 
     private let client = HelperClient()
@@ -92,6 +94,30 @@ final class ConnectionController: ObservableObject {
         showingEditor = true
     }
 
+    func editNote(_ profile: ConnectionProfile) {
+        noteEditorError = nil
+        noteEditingProfile = profile
+    }
+
+    /// Updates the display note locally without re-establishing the current connection.
+    func saveNote(_ profile: ConnectionProfile, note: String) {
+        do {
+            let saved = try requiredStore().updateNote(profile, note: note)
+            profiles = try requiredStore().load()
+            if var active = activeProfile, active.id == saved.id {
+                active.note = saved.note
+                activeProfile = active
+            }
+            if let request = desiredRequest, request.profile.id == saved.id {
+                var updatedProfile = request.profile
+                updatedProfile.note = saved.note
+                desiredRequest = ConnectionRequest(profile: updatedProfile, password: request.password,
+                    trustedCertificateSHA256: request.trustedCertificateSHA256)
+            }
+            noteEditingProfile = nil
+        } catch { noteEditorError = error.localizedDescription }
+    }
+
     var canEditCurrentConnection: Bool { desiredRequest != nil || activeProfile != nil }
 
     func editCurrentConnection() {
@@ -105,10 +131,10 @@ final class ConnectionController: ObservableObject {
         return try requiredStore().password(for: profile)
     }
 
-    func connect(address: String, username: String, password: String, replacing profile: ConnectionProfile?) {
+    func connect(address: String, username: String, password: String, note: String = "", replacing profile: ConnectionProfile?) {
         do {
             guard !password.isEmpty else { throw ProfileStoreError.missingPassword }
-            let record = try requiredStore().profile(address: address, username: username, replacing: profile)
+            let record = try requiredStore().profile(address: address, username: username, note: note, replacing: profile)
             showingEditor = false
             begin(ConnectionRequest(profile: record, password: password), save: true)
         } catch { editorError = error.localizedDescription }
