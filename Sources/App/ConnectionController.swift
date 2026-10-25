@@ -76,14 +76,14 @@ final class ConnectionController: ObservableObject {
 
     var stateTitle: String {
         switch snapshot.state {
-        case .disconnected: return "准备连接"
+        case .disconnected: return "未连接"
         case .awaitingAuthorization: return "需要系统授权"
         case .connecting: return "正在连接"
         case .awaitingChallenge: return "需要完成验证"
         case .connected: return "已连接"
         case .reconnecting: return "正在恢复连接"
         case .disconnecting: return "正在断开"
-        case .failed: return "连接未完成"
+        case .failed: return "连接失败"
         }
     }
 
