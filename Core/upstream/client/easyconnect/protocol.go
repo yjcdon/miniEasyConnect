@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 
 	"github.com/mythologyli/zju-connect/log"
 	"github.com/refraction-networking/utls"
@@ -60,10 +61,14 @@ func (c *Client) tlsConn(ctx context.Context, tunnelType string) (*tls.UConn, er
 
 	// Use uTLS to construct a weird TLS Client Hello (required by Sangfor)
 	// The VPN and HTTP Server share port 443, Sangfor uses a special SessionID to distinguish them
-	conn := tls.UClient(dialConn, &tls.Config{
-		InsecureSkipVerify: true,
+	serverName, _, _ := net.SplitHostPort(c.server)
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: !c.verifyServerCertificate,
+		ServerName:         serverName,
 		KeyLogWriter:       c.tlsKeyLogWriter,
-	}, tls.HelloCustom)
+	}
+	c.applyTunnelTrust(tlsConfig)
+	conn := tls.UClient(dialConn, tlsConfig, tls.HelloCustom)
 
 	random := make([]byte, 32)
 	_, _ = rand.Read(random) // Ignore err

@@ -46,6 +46,10 @@ type Options struct {
 	UnderlayDialer   client.UnderlayDialer
 	TLSKeyLogWriter  io.Writer
 	ChallengeHandler authchallenge.Handler
+	// VerifyServerCertificate enables system trust and hostname verification.
+	VerifyServerCertificate bool
+	// PinnedCertificateSHA256 authorizes exactly one previously approved leaf certificate.
+	PinnedCertificateSHA256 string
 }
 
 type Client struct {
@@ -79,15 +83,17 @@ type Client struct {
 	ip        net.IP // Client IP
 	ipReverse []byte
 
-	lifecycleCtx       context.Context
-	lifecycleCancel    context.CancelFunc
-	requestIPConn      net.Conn
-	requestIPConnMu    sync.Mutex
-	requestIPKeepAlive sync.Once
-	keepAliveStarted   sync.Once
-	closeOnce          sync.Once
-	graphCodeFile      string
-	challengeHandler   authchallenge.Handler
+	lifecycleCtx            context.Context
+	lifecycleCancel         context.CancelFunc
+	requestIPConn           net.Conn
+	requestIPConnMu         sync.Mutex
+	requestIPKeepAlive      sync.Once
+	keepAliveStarted        sync.Once
+	closeOnce               sync.Once
+	graphCodeFile           string
+	challengeHandler        authchallenge.Handler
+	verifyServerCertificate bool
+	pinnedCertificateSHA256 string
 }
 
 func NewClient(options Options) *Client {
@@ -97,23 +103,25 @@ func NewClient(options Options) *Client {
 		challengeHandler = authchallenge.NewCLIHandler(authchallenge.CLIOptions{})
 	}
 	c := &Client{
-		server:            options.Server,
-		username:          options.Auth.Username,
-		password:          options.Auth.Password,
-		totpSecret:        options.Auth.TOTPSecret,
-		tlsCert:           options.Auth.Certificate,
-		testMultiLine:     options.TestMultiLine,
-		parseResource:     options.Resources.Fetch,
-		useDomainResource: options.Resources.IncludeDomains,
-		httpClient:        &http.Client{Timeout: easyConnectHTTPTimeout},
-		underlayDialer:    options.UnderlayDialer,
-		tlsKeyLogWriter:   options.TLSKeyLogWriter,
-		rawRequestTimeout: easyConnectRawRequestTimeout,
-		twfID:             options.SessionID,
-		lifecycleCtx:      lifecycleCtx,
-		lifecycleCancel:   lifecycleCancel,
-		graphCodeFile:     options.Auth.GraphCodeFile,
-		challengeHandler:  challengeHandler,
+		server:                  options.Server,
+		username:                options.Auth.Username,
+		password:                options.Auth.Password,
+		totpSecret:              options.Auth.TOTPSecret,
+		tlsCert:                 options.Auth.Certificate,
+		testMultiLine:           options.TestMultiLine,
+		parseResource:           options.Resources.Fetch,
+		useDomainResource:       options.Resources.IncludeDomains,
+		httpClient:              &http.Client{Timeout: easyConnectHTTPTimeout},
+		underlayDialer:          options.UnderlayDialer,
+		tlsKeyLogWriter:         options.TLSKeyLogWriter,
+		rawRequestTimeout:       easyConnectRawRequestTimeout,
+		twfID:                   options.SessionID,
+		lifecycleCtx:            lifecycleCtx,
+		lifecycleCancel:         lifecycleCancel,
+		graphCodeFile:           options.Auth.GraphCodeFile,
+		challengeHandler:        challengeHandler,
+		verifyServerCertificate: options.VerifyServerCertificate,
+		pinnedCertificateSHA256: options.PinnedCertificateSHA256,
 	}
 	c.setHTTPTransport(&tls.Config{InsecureSkipVerify: true})
 	return c
@@ -296,6 +304,7 @@ func (c *Client) setHTTPTransport(tlsConfig *tls.Config) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = c.dialContext
 	transport.TLSClientConfig = tlsConfig.Clone()
+	c.applyHTTPTrust(transport.TLSClientConfig)
 	if c.tlsKeyLogWriter != nil {
 		transport.TLSClientConfig.KeyLogWriter = c.tlsKeyLogWriter
 	}
