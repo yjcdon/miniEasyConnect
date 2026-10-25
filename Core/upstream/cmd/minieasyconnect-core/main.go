@@ -235,7 +235,7 @@ func (s *session) run(c configuration) error {
 	defer stopClose()
 	s.emit(event{Kind: "phase", Phase: "connecting"})
 	if err = vpn.Setup(); err != nil {
-		return fmt.Errorf("authentication: %w", err)
+		return err
 	}
 	if s.ctx.Err() != nil {
 		return s.ctx.Err()
@@ -662,6 +662,12 @@ func (f *dnsForwarder) ServeDNS(w dns.ResponseWriter, m *dns.Msg) {
 
 // publicError never exposes an upstream response, account, endpoint or credential.
 func publicError(err error) (string, string) {
+	if errors.Is(err, easyconnect.ErrAuthenticationRejected) {
+		return "authenticationFailed", "服务端未通过账号、密码或验证信息，请检查后重试"
+	}
+	if errors.Is(err, easyconnect.ErrUnsupportedAuthentication) {
+		return "unsupportedAuthentication", "服务端要求的登录验证暂不支持，或认证结果无法识别"
+	}
 	if errors.Is(err, easyconnect.ErrInvalidLoginResponse) {
 		return "unsupportedServer", "该地址未返回受支持的 EasyConnect 登录信息，请检查 VPN 地址"
 	}
@@ -691,8 +697,6 @@ func publicError(err error) (string, string) {
 		return "unsupportedMode", "服务端仅支持 TCP 隧道，当前版本需要 TUN 能力"
 	case errors.As(err, &dnsError) || errors.As(err, &operationError) || errors.Is(err, context.DeadlineExceeded):
 		return "connectionFailed", "无法访问 VPN 服务端，请检查地址和网络连接"
-	case strings.HasPrefix(message, "authentication"):
-		return "authenticationFailed", "登录失败，请检查地址、账号、密码及验证信息"
 	default:
 		return "connectionFailed", "VPN 连接失败，请检查网络和服务端配置"
 	}

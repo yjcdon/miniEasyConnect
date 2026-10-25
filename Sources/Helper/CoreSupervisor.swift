@@ -443,6 +443,7 @@ final class CoreSupervisor {
     private func safeMessage(code: String?) -> String {
         switch code {
         case "authenticationFailed": return "账号、密码或验证信息未通过，请检查后重试。"
+        case "unsupportedAuthentication": return "服务端要求的登录验证暂不支持，或认证结果无法识别。"
         case "serverCertificate": return "无法验证 VPN 服务端证书，请检查系统信任设置。"
         case "dnsUnavailable": return "VPN DNS 初始化失败，请检查端口占用和网络配置。"
         case "dnsListenerFailed": return "本地 DNS 服务未能启动，请检查 DNS 端口占用。"

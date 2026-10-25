@@ -36,6 +36,24 @@ var errNotFound = errors.New("not found")
 // ErrInvalidLoginResponse identifies endpoints that do not provide the required login contract.
 var ErrInvalidLoginResponse = errors.New("unsupported EasyConnect login response")
 
+// ErrAuthenticationRejected means a server login response explicitly rejected authentication.
+var ErrAuthenticationRejected = errors.New("authentication rejected by server")
+
+// ErrUnsupportedAuthentication identifies an unsupported or unrecognized authentication exchange.
+var ErrUnsupportedAuthentication = errors.New("unsupported authentication exchange")
+
+// authenticationFailure retains only a numeric server code, never the raw login response.
+func authenticationFailure(body []byte, stage string) error {
+	if regexp.MustCompile(`<Result>\s*0\s*</Result>`).Match(body) {
+		code := regexp.MustCompile(`<ErrorCode>\s*([0-9]{1,8})\s*</ErrorCode>`).FindSubmatch(body)
+		if len(code) == 2 {
+			return fmt.Errorf("%w: server code %s", ErrAuthenticationRejected, string(code[1]))
+		}
+		return ErrAuthenticationRejected
+	}
+	return fmt.Errorf("%w: unrecognized %s response", ErrUnsupportedAuthentication, stage)
+}
+
 func requiredLoginValue(body []byte, field string) (string, error) {
 	match := regexp.MustCompile("<" + field + ">([^<]+)</" + field + ">").FindSubmatch(body)
 	if len(match) != 2 {
@@ -58,6 +76,9 @@ func (c *Client) requestTwfID(graphCodeFile string) error {
 				return err
 			}
 		} else if errors.Is(err, errCertRequired) {
+			if len(c.tlsCert.Certificate) == 0 {
+				return fmt.Errorf("%w: client certificate required", ErrUnsupportedAuthentication)
+			}
 			err = c.loginCert()
 			if err != nil {
 				return err
@@ -252,11 +273,11 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	if strings.Contains(buf.String(), "<NextAuth>-1</NextAuth>") || !strings.Contains(buf.String(), "<NextAuth>") {
 		log.Print("No NextAuth found")
 	} else {
-		return errors.New("Not implemented auth: " + buf.String())
+		return fmt.Errorf("%w: next authentication method", ErrUnsupportedAuthentication)
 	}
 
 	if !strings.Contains(buf.String(), "<Result>1</Result>") {
-		return errors.New("Login failed: " + buf.String())
+		return authenticationFailure(buf.Bytes(), "password login")
 	}
 
 	twfIDMatch := regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())
@@ -298,7 +319,7 @@ func (c *Client) loginSMS() error {
 	log.DebugPrintf("SMS request response: %s", buf.String())
 
 	if !strings.Contains(buf.String(), "验证码已发送到您的手机") && !strings.Contains(buf.String(), "请输入验证码：") && !strings.Contains(buf.String(), "<USER_PHONE>") {
-		return errors.New("unexpected SMS response: " + buf.String())
+		return fmt.Errorf("%w: unrecognized SMS challenge response", ErrUnsupportedAuthentication)
 	}
 
 	log.Printf("SMS code is sent or still valid")
@@ -340,7 +361,7 @@ func (c *Client) loginSMS() error {
 	log.DebugPrintf("SMS verification response: %s", buf.String())
 
 	if !strings.Contains(buf.String(), "Auth sms suc") && !strings.Contains(buf.String(), "欢迎访问") {
-		return errors.New("SMS code verification failed: " + buf.String())
+		return authenticationFailure(buf.Bytes(), "SMS verification")
 	}
 
 	twfIDMatch := regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())
@@ -400,7 +421,7 @@ func (c *Client) loginTOTP() error {
 	}(resp.Body)
 
 	if !strings.Contains(buf.String(), "Totp auth succ") {
-		return errors.New("TOTP verification failed: " + buf.String())
+		return authenticationFailure(buf.Bytes(), "TOTP verification")
 	}
 
 	c.twfID, err = requiredLoginValue(buf.Bytes(), "TwfID")
@@ -478,7 +499,7 @@ func (c *Client) loginCert() error {
 		strings.Contains(response, "Login successfully") ||
 		strings.Contains(response, "Auth cert suc")
 	if !certSuccess {
-		return errors.New("Cert verification failed: " + response)
+		return authenticationFailure(buf.Bytes(), "certificate verification")
 	}
 
 	twfIDMatch := regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())

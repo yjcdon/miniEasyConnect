@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -206,7 +207,7 @@ func (c *Client) Setup() error {
 		return errors.New("underlay dialer is required")
 	}
 	if err := c.ensureSession(); err != nil {
-		return err
+		return fmt.Errorf("login: %w", err)
 	}
 
 	// Probe at most once. If the selected line changes, establish one fresh
@@ -230,7 +231,7 @@ func (c *Client) Setup() error {
 					c.testMultiLine = false
 					c.twfID = ""
 					if err := c.ensureSession(); err != nil {
-						return err
+						return fmt.Errorf("line login: %w", err)
 					}
 				}
 			}
@@ -240,7 +241,7 @@ func (c *Client) Setup() error {
 	// Then, use the TwfID to get token
 	err := c.requestToken()
 	if err != nil {
-		return err
+		return fmt.Errorf("session token: %w", err)
 	}
 
 	startTime := time.Now()
@@ -269,7 +270,7 @@ func (c *Client) Setup() error {
 
 		// Finally, use the token to get client IP
 		if err := c.requestIP(); err != nil {
-			return err
+			return fmt.Errorf("virtual IP: %w", err)
 		}
 	}
 
