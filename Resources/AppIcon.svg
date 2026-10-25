@@ -7,6 +7,12 @@
   </defs>
   <rect x="64" y="64" width="896" height="896" rx="196" fill="url(#blue)"/>
   <rect x="65" y="65" width="894" height="894" rx="195" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
-  <!-- Tabler Icons shield-lock (MIT), composed on a blue application tile. -->
-  <path transform="translate(212 212) scale(25)" fill="white" d="M11.998 2l.118 .007l.059 .008l.061 .013l.111 .034a.993 .993 0 0 1 .217 .112l.104 .082l.255 .218a11 11 0 0 0 7.189 2.537l.342 -.01a1 1 0 0 1 1.005 .717a13 13 0 0 1 -9.208 16.25a1 1 0 0 1 -.502 0a13 13 0 0 1 -9.209 -16.25a1 1 0 0 1 1.005 -.717a11 11 0 0 0 7.531 -2.527l.263 -.225l.096 -.075a.993 .993 0 0 1 .217 -.112l.112 -.034a.97 .97 0 0 1 .119 -.021l.115 -.007zm.002 7a2 2 0 0 0 -1.995 1.85l-.005 .15l.005 .15a2 2 0 0 0 .995 1.581v1.769l.007 .117a1 1 0 0 0 1.993 -.117l.001 -1.768a2 2 0 0 0 -1.001 -3.732z"/>
+  <!-- Tabler Icons network (MIT), composed on a blue application tile. -->
+  <g transform="translate(176 176) scale(28)" fill="none" stroke="white" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 9a6 6 0 1 0 12 0a6 6 0 0 0 -12 0"/>
+    <path d="M12 3c1.333 .333 2 2.333 2 6s-.667 5.667 -2 6"/>
+    <path d="M12 3c-1.333 .333 -2 2.333 -2 6s.667 5.667 2 6"/>
+    <path d="M6 9h12M3 20h7M14 20h7M12 15v3"/>
+    <path d="M10 20a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/>
+  </g>
 </svg>
