@@ -19,6 +19,10 @@ mkdir -p "$BUILD_DIR" "$HELPERS" "$APP/Contents/MacOS" "$APP/Contents/Library/La
 cp "$BUILD_DIR/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 (cd "$PROJECT_ROOT/Core/upstream" && GOTOOLCHAIN=go1.27.3 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "$HELPERS/minieasyconnect-core" ./cmd/minieasyconnect-core)
+python3 "$PROJECT_ROOT/Scripts/collect-third-party-notices.py" \
+    --binary "$HELPERS/minieasyconnect-core" \
+    --module-root "$PROJECT_ROOT/Core/upstream" \
+    --output "$APP/Contents/Resources/ThirdPartyNotices.txt"
 
 swiftc -swift-version 5 -O -parse-as-library -target arm64-apple-macosx13.0 \
     "$PROJECT_ROOT"/Sources/Shared/*.swift "$PROJECT_ROOT"/Sources/Helper/*.swift \
