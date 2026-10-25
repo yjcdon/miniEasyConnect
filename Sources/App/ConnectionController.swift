@@ -21,7 +21,6 @@ final class ConnectionController: ObservableObject {
     private let client = HelperClient()
     private var store: ProfileStore?
     private var desiredRequest: ConnectionRequest?
-    private var saveOnSuccess = false
     private var retryTask: Task<Void, Never>?
     private var retryCount = 0
     private let maxRetries = 4
@@ -126,25 +125,42 @@ final class ConnectionController: ObservableObject {
         edit(profile)
     }
 
-    /// Reuses the in-memory attempt when editing an unsaved or failed connection.
+    /// Reuses the current request in memory; other saved records read their password from Keychain.
     func passwordForEditing(_ profile: ConnectionProfile) throws -> String {
         if let request = desiredRequest, request.profile == profile { return request.password }
         return try requiredStore().password(for: profile)
     }
 
+    /// Saves validated connection details before authorization or any connection attempt.
     func connect(address: String, username: String, password: String, note: String = "", replacing profile: ConnectionProfile?) {
+        guard !isPerformingCommand, !isDisablingHelper else { return }
         do {
             guard !password.isEmpty else { throw ProfileStoreError.missingPassword }
-            let record = try requiredStore().profile(address: address, username: username, note: note, replacing: profile)
+            let store = try requiredStore()
+            let record = try store.profile(address: address, username: username, note: note, replacing: profile)
+            let saved: ConnectionProfile
+            var warning: String?
+            do { saved = try store.save(record, password: password) }
+            catch ProfileStoreError.cleanupFailed(let committed) {
+                saved = committed
+                warning = ProfileStoreError.cleanupFailed(committed).localizedDescription
+            }
+            if let index = profiles.firstIndex(where: { $0.id == saved.id }) { profiles[index] = saved }
+            else { profiles.append(saved) }
+            editingProfile = saved
+            let request = ConnectionRequest(profile: saved, password: password)
+            desiredRequest = request
+            editorError = nil
             showingEditor = false
-            begin(ConnectionRequest(profile: record, password: password), save: true)
+            begin(request)
+            if let warning { errorMessage = warning }
         } catch { editorError = error.localizedDescription }
     }
 
     func connect(_ profile: ConnectionProfile) {
         do {
             let password = try requiredStore().password(for: profile)
-            begin(ConnectionRequest(profile: profile, password: password), save: false)
+            begin(ConnectionRequest(profile: profile, password: password))
         } catch {
             errorMessage = error.localizedDescription
             edit(profile)
@@ -159,11 +175,18 @@ final class ConnectionController: ObservableObject {
         do {
             try requiredStore().delete(profile)
             profiles = try requiredStore().load()
+            if activeProfile?.id == profile.id {
+                stoppedByUser = true
+                retryTask?.cancel()
+                retryTask = nil
+                desiredRequest = nil
+                activeProfile = nil
+            }
         } catch { errorMessage = error.localizedDescription }
     }
 
     func retry() {
-        if let desiredRequest { begin(desiredRequest, save: saveOnSuccess) }
+        if let desiredRequest { begin(desiredRequest) }
         else if let activeProfile { connect(activeProfile) }
         else { newConnection() }
     }
@@ -191,7 +214,6 @@ final class ConnectionController: ObservableObject {
     func disconnect(completion: ((Bool) -> Void)? = nil) {
         stoppedByUser = true
         desiredRequest = nil
-        saveOnSuccess = false
         retryTask?.cancel()
         retryTask = nil
         retryCount = 0
@@ -207,7 +229,7 @@ final class ConnectionController: ObservableObject {
         retryTask?.cancel()
         stoppedByUser = true
         let noServiceStarted = snapshot.state == .failed && !client.hasServiceConnection
-        if ([.disconnected, .awaitingAuthorization].contains(snapshot.state) || noServiceStarted) && !isPerformingCommand {
+        if !client.hasServiceConnection && ([.disconnected, .awaitingAuthorization].contains(snapshot.state) || noServiceStarted) && !isPerformingCommand {
             desiredRequest = nil
             client.invalidate()
             completion(true)
@@ -237,7 +259,6 @@ final class ConnectionController: ObservableObject {
         errorMessage = nil
         stoppedByUser = true
         desiredRequest = nil
-        saveOnSuccess = false
         retryTask?.cancel()
         retryTask = nil
         retryCount = 0
@@ -266,7 +287,7 @@ final class ConnectionController: ObservableObject {
         }
     }
 
-    private func begin(_ request: ConnectionRequest, save: Bool) {
+    private func begin(_ request: ConnectionRequest) {
         guard !isPerformingCommand, !isDisablingHelper else { return }
         errorMessage = nil
         stoppedByUser = false
@@ -276,16 +297,15 @@ final class ConnectionController: ObservableObject {
         if hasConnection {
             perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
                 guard let self, response.ok, response.snapshot.state == .disconnected else { return }
-                self.start(request, save: save)
+                self.start(request)
             }
-        } else { start(request, save: save) }
+        } else { start(request) }
     }
 
-    private func start(_ request: ConnectionRequest, save: Bool) {
+    private func start(_ request: ConnectionRequest) {
         let request = requestWithTrustedCertificate(request)
         desiredRequest = request
         activeProfile = request.profile
-        saveOnSuccess = save
         do {
             try client.authorize()
             perform(HelperCommand(kind: "connect", request: request, challengeID: nil, answer: nil))
@@ -325,28 +345,6 @@ final class ConnectionController: ObservableObject {
             retryTask?.cancel()
             retryTask = nil
             retryCount = 0
-            if saveOnSuccess, let request = desiredRequest {
-                saveOnSuccess = false
-                do {
-                    let saved = try requiredStore().save(request.profile, password: request.password)
-                    profiles = try requiredStore().load()
-                    activeProfile = saved
-                    desiredRequest = ConnectionRequest(profile: saved, password: request.password,
-                        trustedCertificateSHA256: request.trustedCertificateSHA256)
-                } catch ProfileStoreError.cleanupFailed {
-                    do {
-                        profiles = try requiredStore().load()
-                        guard let saved = profiles.first(where: { $0.id == request.profile.id }) ?? profiles.first(where: {
-                            $0.serverHost == request.profile.serverHost && $0.serverPort == request.profile.serverPort && $0.username == request.profile.username
-                        }) else { throw CocoaError(.fileReadCorruptFile) }
-                        activeProfile = saved
-                        desiredRequest = ConnectionRequest(profile: saved, password: request.password,
-                            trustedCertificateSHA256: request.trustedCertificateSHA256)
-                    }
-                    catch { errorMessage = error.localizedDescription; return }
-                    errorMessage = ProfileStoreError.cleanupFailed.localizedDescription
-                } catch { errorMessage = "连接已建立，但记录未保存成功：" + error.localizedDescription }
-            }
         }
         if state.state == .failed && !stoppedByUser {
             retryTask?.cancel()

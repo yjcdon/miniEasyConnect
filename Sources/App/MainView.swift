@@ -39,27 +39,36 @@ struct MainView: View {
 
     private var statusHeader: some View {
         VStack(spacing: 12) {
-            ZStack {
-                Circle().fill(statusColor.opacity(0.10)).frame(width: 76, height: 76)
-                if controller.isBusy && controller.snapshot.state != .awaitingAuthorization {
-                    ProgressView().controlSize(.large)
-                } else {
-                    Image(systemName: "network")
-                        .font(.system(size: 32, weight: .medium))
-                        .foregroundColor(statusColor)
+            Button { controller.newConnection() } label: {
+                ZStack {
+                    Circle().fill(statusColor.opacity(0.10)).frame(width: 76, height: 76)
+                    if controller.isBusy && controller.snapshot.state != .awaitingAuthorization {
+                        ProgressView().controlSize(.large)
+                    } else {
+                        Image(systemName: "network")
+                            .font(.system(size: 32, weight: .medium))
+                            .foregroundColor(statusColor)
+                    }
                 }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("新建连接")
+            .disabled(controller.isBusy || ![.disconnected, .failed].contains(controller.snapshot.state))
             Text(controller.stateTitle).font(.system(size: 23, weight: .semibold))
-            Text(statusDescription)
-                .font(.callout)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .frame(maxWidth: 370, minHeight: 34)
-                .textSelection(.enabled)
-            statusAction
-                .controlSize(.large)
-                .frame(height: 34)
+            if let description = statusDescription {
+                Text(description)
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .frame(maxWidth: 370, minHeight: 34)
+                    .textSelection(.enabled)
+            }
+            if controller.snapshot.state != .disconnected {
+                statusAction
+                    .controlSize(.large)
+                    .frame(height: 34)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -88,8 +97,7 @@ struct MainView: View {
             }
             .disabled(controller.isPerformingCommand)
         case .disconnected:
-            Button("连接") { controller.newConnection() }.buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+            EmptyView()
         }
     }
 
@@ -107,7 +115,7 @@ struct MainView: View {
             if controller.profiles.isEmpty {
                 VStack(spacing: 6) {
                     Text("还没有连接记录").font(.callout)
-                    Text("首次连接成功后自动保存，下次一键连接。")
+                    Text("添加连接记录，下次一键连接。")
                         .font(.caption).foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -145,6 +153,7 @@ struct MainView: View {
                 Button("删除", role: .destructive) { controller.delete(profile) }
             } label: { Image(systemName: "ellipsis") }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
             .disabled(controller.isBusy)
             .accessibilityLabel("管理 \(profile.displayName)")
@@ -162,12 +171,12 @@ struct MainView: View {
         }
     }
 
-    private var statusDescription: String {
+    private var statusDescription: String? {
         if let message = controller.snapshot.message, !message.isEmpty { return message }
         if controller.snapshot.state == .connected, let profile = controller.activeProfile {
-            return "\(profile.displayName)\n现在可以直接访问授权内网。"
+            return profile.displayName
         }
-        return "连接后即可使用内网，关闭窗口仍保持连接。"
+        return nil
     }
 }
 
@@ -212,6 +221,7 @@ private struct ConnectionEditor: View {
     @ViewState private var address = ""
     @ViewState private var username = ""
     @ViewState private var password = ""
+    @ViewState private var passwordVisible = false
     @ViewState private var note = ""
     @FocusState private var focusedField: Field?
     private enum Field { case address, username, password, note }
@@ -220,24 +230,50 @@ private struct ConnectionEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(profile == nil ? "新建连接" : "修改连接").font(.title2.bold())
-                Text("连接成功后保存，下次无需重复输入。")
+                Text("保存后连接，下次无需重复输入。")
                     .font(.callout).foregroundColor(.secondary)
             }
             VStack(alignment: .leading, spacing: 14) {
                 field("VPN 地址") {
-                    TextField("vpn.example.com:443", text: $address)
+                    TextField("", text: $address)
                         .focused($focusedField, equals: .address)
                         .accessibilityLabel("VPN 地址")
                 }
                 field("账号") {
-                    TextField("输入账号", text: $username)
+                    TextField("", text: $username)
                         .focused($focusedField, equals: .username)
                         .accessibilityLabel("账号")
                 }
                 field("密码") {
-                    SecureField("输入密码", text: $password)
+                    HStack(spacing: 8) {
+                        Group {
+                            if passwordVisible {
+                                TextField("", text: $password)
+                            } else {
+                                SecureField("", text: $password)
+                            }
+                        }
                         .focused($focusedField, equals: .password)
                         .accessibilityLabel("密码")
+                        Button {
+                            passwordVisible.toggle()
+                            focusedField = nil
+                            DispatchQueue.main.async { focusedField = .password }
+                        } label: {
+                            Image(systemName: passwordVisible ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(passwordVisible ? "隐藏密码" : "显示密码")
+                    }
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(focusedField == .password ? Color.accentColor : Color(nsColor: .separatorColor),
+                                    lineWidth: focusedField == .password ? 2 : 1)
+                    }
                 }
                 field("备注（可选）") {
                     TextField("", text: $note)
@@ -253,7 +289,7 @@ private struct ConnectionEditor: View {
                 Spacer()
                 Button("取消") { controller.showingEditor = false }
                     .keyboardShortcut(.cancelAction)
-                Button("连接并保存") {
+                Button("保存并连接") {
                     controller.connect(address: address, username: username, password: password, note: note, replacing: profile)
                 }
                 .buttonStyle(.borderedProminent)

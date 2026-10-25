@@ -7,7 +7,7 @@ enum ProfileStoreError: LocalizedError {
     case missingPassword
     case unsupportedFormat
     case keychain(OSStatus)
-    case cleanupFailed
+    case cleanupFailed(ConnectionProfile)
     case duplicateConnection
     case recordNotFound
 
@@ -21,7 +21,7 @@ enum ProfileStoreError: LocalizedError {
             if status == errSecItemNotFound { return "保存的密码不存在，请重新输入。" }
             if status == errSecInteractionNotAllowed { return "系统钥匙串暂时不可用，请解锁后重试。" }
             return "无法访问系统钥匙串（\(status)）。"
-        case .cleanupFailed: return "连接记录已保存，但旧凭据未能清理。请重新保存或删除该记录。"
+        case .cleanupFailed: return "连接记录和新密码已保存，但旧密码存储项未能清理；不影响使用当前记录。"
         case .duplicateConnection: return "已有相同地址和账号的连接记录，请直接使用已有记录。"
         case .recordNotFound: return "这条连接记录已不存在，请重新选择。"
         }
@@ -114,7 +114,7 @@ final class ProfileStore {
         }
         if let existing {
             let status = SecItemDelete(credentialQuery(existing.credentialRef) as CFDictionary)
-            if status != errSecSuccess && status != errSecItemNotFound { throw ProfileStoreError.cleanupFailed }
+            if status != errSecSuccess && status != errSecItemNotFound { throw ProfileStoreError.cleanupFailed(saved) }
         }
         return saved
     }
