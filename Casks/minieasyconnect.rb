@@ -8,7 +8,7 @@ cask "minieasyconnect" do
   homepage "https://github.com/yjcdon/miniEasyConnect"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "miniEasyConnect.app"
 
