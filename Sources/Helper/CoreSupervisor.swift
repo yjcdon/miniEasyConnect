@@ -41,6 +41,10 @@ final class CoreSupervisor {
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
+    private var outputSource: DispatchSourceRead?
+    private var childExited = false
+    private var stdoutEOF = false
+    private var outputDrainDeadline: DispatchWorkItem?
     private var buffer = Data()
     private var owner: UUID?
     private var observers: [UUID: HelperObserver] = [:]
@@ -158,21 +162,21 @@ final class CoreSupervisor {
         child.terminationHandler = { [weak self] child in
             self?.queue.async { self?.terminated(child) }
         }
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil }
-            self?.queue.async { self?.received(data, sessionID: sessionID) }
-        }
         process = child
         input = inputPipe.fileHandleForWriting
         output = outputPipe.fileHandleForReading
         self.owner = owner
         pendingFailure = nil
         pendingRetryable = false
+        childExited = false
+        stdoutEOF = false
         buffer.removeAll(keepingCapacity: false)
         update(ConnectionSnapshot(state: .connecting, sessionID: sessionID))
         do {
+            try monitorOutput(outputPipe.fileHandleForReading, sessionID: sessionID)
             try child.run()
+            try? inputPipe.fileHandleForReading.close()
+            try? outputPipe.fileHandleForWriting.close()
             try write(CoreCommand(kind: "start", sessionID: sessionID,
                                   config: CoreConfiguration(serverHost: profile.serverHost,
                                                             serverPort: profile.serverPort,
@@ -185,7 +189,8 @@ final class CoreSupervisor {
                 stop(failure: pendingFailure)
             } else {
                 try? input?.close()
-                output?.readabilityHandler = nil
+                outputSource?.cancel()
+                outputSource = nil
                 process = nil
                 input = nil
                 output = nil
@@ -196,6 +201,59 @@ final class CoreSupervisor {
             }
             throw HelperFailure.operation(pendingFailure ?? "无法启动 VPN 核心。")
         }
+    }
+
+    /// Reads stdout on the same serial queue as process exit, so the final failure event cannot be discarded.
+    private func monitorOutput(_ handle: FileHandle, sessionID: String) throws {
+        let descriptor = handle.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            throw HelperFailure.operation("无法建立 VPN 核心事件通道。")
+        }
+        let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+        source.setEventHandler { [weak self] in self?.readOutput(sessionID: sessionID) }
+        source.setCancelHandler { try? handle.close() }
+        outputSource = source
+        source.resume()
+    }
+
+    private func readOutput(sessionID: String) {
+        guard snapshot.sessionID == sessionID, !stdoutEOF, let output else { return }
+        var chunk = [UInt8](repeating: 0, count: 16 * 1024)
+        while true {
+            let count = chunk.withUnsafeMutableBytes { bytes in
+                Darwin.read(output.fileDescriptor, bytes.baseAddress!, bytes.count)
+            }
+            if count > 0 {
+                received(Data(chunk.prefix(count)), sessionID: sessionID)
+            } else if count == 0 {
+                finishedOutput(sessionID: sessionID)
+                return
+            } else if errno == EINTR {
+                continue
+            } else if errno == EAGAIN || errno == EWOULDBLOCK {
+                return
+            } else {
+                stop(failure: "VPN 核心事件通道读取失败。")
+                finishedOutput(sessionID: sessionID)
+                return
+            }
+        }
+    }
+
+    private func finishedOutput(sessionID: String) {
+        guard snapshot.sessionID == sessionID, !stdoutEOF else { return }
+        if !buffer.isEmpty {
+            received(Data([10]), sessionID: sessionID)
+        }
+        stdoutEOF = true
+        outputSource?.cancel()
+        outputSource = nil
+        output = nil
+        if !childExited && snapshot.state != .disconnecting {
+            stop(failure: "VPN 核心事件通道意外关闭。", retryable: true)
+        }
+        finishExitedProcess()
     }
 
     private func received(_ data: Data, sessionID: String) {
@@ -285,11 +343,27 @@ final class CoreSupervisor {
     private func terminated(_ child: Process) {
         guard process === child else { return }
         connectDeadline?.cancel()
-        output?.readabilityHandler = nil
+        childExited = true
         try? input?.close()
-        try? output?.close()
         input = nil
-        output = nil
+        if let sessionID = snapshot.sessionID { readOutput(sessionID: sessionID) }
+        finishExitedProcess()
+        // A descendant retaining stdout must not prevent recovery after the core itself has exited.
+        if process === child, !stdoutEOF, let sessionID = snapshot.sessionID {
+            let deadline = DispatchWorkItem { [weak self] in
+                guard let self, self.process === child, self.childExited, !self.stdoutEOF else { return }
+                self.readOutput(sessionID: sessionID)
+                self.finishedOutput(sessionID: sessionID)
+            }
+            outputDrainDeadline = deadline
+            queue.asyncAfter(deadline: .now() + 1, execute: deadline)
+        }
+    }
+
+    private func finishExitedProcess() {
+        guard childExited, stdoutEOF, process != nil else { return }
+        outputDrainDeadline?.cancel()
+        outputDrainDeadline = nil
         process = nil
         if snapshot.state != .disconnecting && pendingFailure == nil {
             pendingFailure = "VPN 核心意外退出，请重新连接。"
