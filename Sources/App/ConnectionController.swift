@@ -246,7 +246,15 @@ final class ConnectionController: ObservableObject {
                     desiredRequest = ConnectionRequest(profile: saved, password: request.password,
                         trustedCertificateSHA256: request.trustedCertificateSHA256)
                 } catch ProfileStoreError.cleanupFailed {
-                    do { profiles = try requiredStore().load() }
+                    do {
+                        profiles = try requiredStore().load()
+                        guard let saved = profiles.first(where: { $0.id == request.profile.id }) ?? profiles.first(where: {
+                            $0.serverHost == request.profile.serverHost && $0.serverPort == request.profile.serverPort && $0.username == request.profile.username
+                        }) else { throw CocoaError(.fileReadCorruptFile) }
+                        activeProfile = saved
+                        desiredRequest = ConnectionRequest(profile: saved, password: request.password,
+                            trustedCertificateSHA256: request.trustedCertificateSHA256)
+                    }
                     catch { errorMessage = error.localizedDescription; return }
                     errorMessage = ProfileStoreError.cleanupFailed.localizedDescription
                 } catch { errorMessage = "连接已建立，但记录未保存成功：" + error.localizedDescription }
