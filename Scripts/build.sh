@@ -6,6 +6,8 @@ BUILD_DIR="$PROJECT_ROOT/.build"
 APP="$PROJECT_ROOT/dist/miniEasyConnect.app"
 HELPERS="$APP/Contents/Helpers"
 APP_ID=io.github.yjcdon.miniEasyConnect
+APP_VERSION=$(cat "$PROJECT_ROOT/VERSION")
+APP_BUILD_NUMBER=$(cat "$PROJECT_ROOT/BUILD_NUMBER")
 SIGN_ID=${MINIEASY_SIGN_ID:-}
 if [ -z "$SIGN_ID" ]; then
     SIGN_ID=$(security find-identity -v -p codesigning | awk -F '"' '/Apple Development:|Developer ID Application:/{print $2; exit}')
@@ -50,8 +52,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <key>CFBundleExecutable</key><string>miniEasyConnect</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>$APP_BUILD_NUMBER</string>
+<key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>SigningTeamIdentifier</key><string>$TEAM_ID</string>
@@ -68,6 +70,7 @@ cat > "$APP/Contents/Library/LaunchDaemons/$APP_ID.helper.plist" <<EOF
 EOF
 cp "$PROJECT_ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$PROJECT_ROOT/Resources/ThirdParty/Tabler-LICENSE" "$APP/Contents/Resources/Tabler-LICENSE"
+python3 "$PROJECT_ROOT/Scripts/write-build-manifest.py" "$PROJECT_ROOT" "$APP"
 codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" "$APP"
 codesign --verify --deep --strict "$APP"
 echo "$APP"

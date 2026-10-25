@@ -1,6 +1,6 @@
 # miniEasyConnect 核心
 
-`upstream` 保留 ZJU Connect 的 Go 源码及许可证，基线为公开提交 `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63`。不包含上游 Git 目录和无关部署图片。本项目不会修改旁边的独立上游 checkout。
+`upstream` 保留 ZJU Connect 的 Go 源码及许可证，公开基线提交记录在 [UPSTREAM_REVISION](UPSTREAM_REVISION)。不包含上游 Git 目录和无关部署图片。本项目不会修改旁边的独立上游 checkout。
 
 构建入口：在 `Core/upstream` 执行 `go build ./cmd/minieasyconnect-core`，目标平台为 `darwin/arm64`。Go 工具链及依赖以 `go.mod`、`go.sum` 为准。
 
