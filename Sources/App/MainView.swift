@@ -77,7 +77,13 @@ struct MainView: View {
         case .disconnecting:
             Text("正在恢复网络设置…").font(.callout).foregroundColor(.secondary)
         case .failed:
-            Button("重试连接") { controller.retry() }.buttonStyle(.borderedProminent)
+            HStack {
+                if controller.canEditCurrentConnection {
+                    Button("修改连接") { controller.editCurrentConnection() }.buttonStyle(.bordered)
+                }
+                Button("重试连接") { controller.retry() }.buttonStyle(.borderedProminent)
+            }
+            .disabled(controller.isPerformingCommand)
         case .disconnected:
             Button("连接") { controller.newConnection() }.buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -215,7 +221,7 @@ private struct ConnectionEditor: View {
             if let profile {
                 address = profile.serverHost + ":" + String(profile.serverPort)
                 username = profile.username
-                do { password = try controller.savedPassword(for: profile) }
+                do { password = try controller.passwordForEditing(profile) }
                 catch { controller.editorError = error.localizedDescription }
                 focusedField = .password
             } else { focusedField = .address }

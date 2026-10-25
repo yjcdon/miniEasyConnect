@@ -92,7 +92,18 @@ final class ConnectionController: ObservableObject {
         showingEditor = true
     }
 
-    func savedPassword(for profile: ConnectionProfile) throws -> String { try requiredStore().password(for: profile) }
+    var canEditCurrentConnection: Bool { desiredRequest != nil || activeProfile != nil }
+
+    func editCurrentConnection() {
+        guard let profile = desiredRequest?.profile ?? activeProfile else { return }
+        edit(profile)
+    }
+
+    /// Reuses the in-memory attempt when editing an unsaved or failed connection.
+    func passwordForEditing(_ profile: ConnectionProfile) throws -> String {
+        if let request = desiredRequest, request.profile == profile { return request.password }
+        return try requiredStore().password(for: profile)
+    }
 
     func connect(address: String, username: String, password: String, replacing profile: ConnectionProfile?) {
         do {
