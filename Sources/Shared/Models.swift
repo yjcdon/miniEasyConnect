@@ -27,6 +27,13 @@ struct ConnectionProfile: Codable, Identifiable, Equatable {
 struct ConnectionRequest: Codable {
     let profile: ConnectionProfile
     let password: String
+    let trustedCertificateSHA256: String?
+
+    init(profile: ConnectionProfile, password: String, trustedCertificateSHA256: String? = nil) {
+        self.profile = profile
+        self.password = password
+        self.trustedCertificateSHA256 = trustedCertificateSHA256
+    }
 }
 
 enum ConnectionState: String, Codable {
@@ -39,6 +46,15 @@ struct AuthChallenge: Codable {
     let kind: String
     let message: String?
     let imageBase64: String?
+    let certificateSHA256: String?
+
+    init(id: String, kind: String, message: String? = nil, imageBase64: String? = nil, certificateSHA256: String? = nil) {
+        self.id = id
+        self.kind = kind
+        self.message = message
+        self.imageBase64 = imageBase64
+        self.certificateSHA256 = certificateSHA256
+    }
 }
 
 struct ConnectionSnapshot: Codable {
