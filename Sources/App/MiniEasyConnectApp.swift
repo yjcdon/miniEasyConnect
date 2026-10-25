@@ -19,7 +19,7 @@ struct MiniEasyConnectApp: App {
                     .keyboardShortcut("q")
             }
         }
-        MenuBarExtra("miniEasyConnect", systemImage: controller.snapshot.state == .connected ? "checkmark.shield" : "network") {
+        MenuBarExtra("miniEasyConnect", systemImage: "network") {
             ConnectionMenu(controller: controller)
         }
     }

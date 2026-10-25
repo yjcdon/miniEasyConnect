@@ -19,7 +19,6 @@ struct MainView: View {
                 Image(systemName: "lock.shield")
                 Text("密码保存在系统钥匙串")
                 Spacer()
-                Text("ARM64")
             }
             .font(.caption)
             .foregroundColor(.secondary)
@@ -52,7 +51,7 @@ struct MainView: View {
                 if controller.isBusy && controller.snapshot.state != .awaitingAuthorization {
                     ProgressView().controlSize(.large)
                 } else {
-                    Image(systemName: controller.snapshot.state == .connected ? "checkmark.shield.fill" : "network")
+                    Image(systemName: "network")
                         .font(.system(size: 32, weight: .medium))
                         .foregroundColor(statusColor)
                 }
