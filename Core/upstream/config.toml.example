@@ -1,0 +1,73 @@
+protocol = "easyconnect" # "easyconnect" or "atrust"
+server_address = "rvpn.zju.edu.cn"
+server_port = 443
+username = "username"
+password = "password"
+disable_zju_config = false
+disable_remote_dns = false
+socks_bind = ":1080"
+socks_user = ""
+socks_passwd = ""
+http_bind = ":1081"
+shadowsocks_url = "" # "ss://aes-128-gcm:password@:1082"
+dial_direct_proxy = "" # "http://127.0.0.1:7890" or "socks://127.0.0.1:7890"
+tcp_tunnel_mode = false
+tun_mode = false
+add_route = false
+dns_ttl = 3600
+disable_keep_alive = false
+keep_alive_url = "" # "https://www.cnki.net/favicon.ico"
+remote_dns_server = "auto"
+secondary_dns_server = "auto"
+dns_server_bind = ""
+local_dns_server = "" # DNS used to resolve the VPN server, e.g. "223.5.5.5" or "223.5.5.5:53"
+dns_hijack = false
+fake_ip = false
+debug_dump = false
+debug_pcap_file = "" # Reconstruct encrypted VPN underlay TCP traffic in this PCAP file (debug only)
+debug_tls_log_file = "" # Export TLS session secrets in NSS key log format (debug only)
+bind_interface = ""
+auto_detect_interface = false
+
+# Port forwarding
+port_forwarding = [
+#    { network_type = "tcp", bind_address = "127.0.0.1:9898", remote_address = "10.10.98.98:80" },
+#    { network_type = "tcp", bind_address = "127.0.0.1:9899", remote_address = "10.10.98.98:80" },
+#    { network_type = "udp", bind_address = "127.0.0.1:1053", remote_address = "10.10.0.21:53" }
+]
+
+custom_dns = [
+#    { host_name = "appservice.zju.edu.cn", ip = "10.203.8.198"},
+#    { host_name = "www.cc98.org", ip = "10.10.98.98"}
+]
+
+
+# EasyConnect specific settings
+totp_secret = ""
+cert_file = ""
+cert_password = ""
+disable_server_config = false
+skip_domain_resource = false
+disable_multi_line = false
+proxy_all = false
+custom_proxy_domain = [
+#    "science.org",
+#    "nature.com"
+]
+twf_id = ""
+
+
+# aTrust specific settings
+auth_type = "auth/psw"
+login_domain = "Radius"
+client_data_file = "client_data.json"
+graph_code_file = "" # Optional: captcha image will open in browser if this left empty. If set, the program will save the captcha image to this file and ask user to input the code in terminal.
+cas_ticket = ""
+oauth2_code = ""
+phone = ""
+update_best_nodes_interval = 300
+session_refresh_interval = 1800 # aTrust authConfig refresh interval in seconds; 0 disables
+sid = ""
+device_id = ""
+sign_key = ""
+resource_file = ""
