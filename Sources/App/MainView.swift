@@ -253,25 +253,45 @@ private struct ChallengeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("完成登录验证").font(.title2.bold())
-            Text(controller.snapshot.challenge?.message ?? "请输入服务端要求的验证码。")
+            Text(isCertificate ? "确认服务端证书" : "完成登录验证").font(.title2.bold())
+            Text(controller.snapshot.challenge?.message ?? (isCertificate ? "请确认此服务端证书。" : "请输入服务端要求的验证码。"))
                 .foregroundColor(.secondary)
-            if let encoded = controller.snapshot.challenge?.imageBase64,
-               let data = Data(base64Encoded: encoded), let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 320, maxHeight: 160)
+            if isCertificate {
+                if let fingerprint = controller.snapshot.challenge?.certificateSHA256 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("证书 SHA-256 指纹").font(.caption).foregroundColor(.secondary)
+                        Text(fingerprint).font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Text("仅记住此地址的这张证书。证书变更后会再次请你确认。")
+                    .font(.caption).foregroundColor(.secondary)
+            } else {
+                if let encoded = controller.snapshot.challenge?.imageBase64,
+                   let data = Data(base64Encoded: encoded), let image = NSImage(data: data) {
+                    Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 320, maxHeight: 160)
+                }
+                TextField("验证码", text: $answer).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("验证码")
             }
-            TextField("验证码", text: $answer).textFieldStyle(.roundedBorder)
-                .accessibilityLabel("验证码")
             HStack {
                 Spacer()
                 Button("取消连接") { controller.disconnect() }.keyboardShortcut(.cancelAction)
-                Button("继续") { controller.answerChallenge(answer); answer = "" }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(answer.isEmpty)
+                if isCertificate {
+                    Button("信任此证书并连接") { controller.trustCertificate() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(controller.isPerformingCommand || controller.snapshot.challenge?.certificateSHA256 == nil)
+                } else {
+                    Button("继续") { controller.answerChallenge(answer); answer = "" }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(answer.isEmpty || controller.isPerformingCommand)
+                }
             }
         }
         .padding(26)
         .frame(width: 380)
     }
+
+    private var isCertificate: Bool { controller.snapshot.challenge?.kind == "certificate" }
 }

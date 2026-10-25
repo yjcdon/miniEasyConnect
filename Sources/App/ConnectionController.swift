@@ -137,6 +137,18 @@ final class ConnectionController: ObservableObject {
         perform(HelperCommand(kind: "answer", request: nil, challengeID: challenge.id, answer: answer))
     }
 
+    /// Persists an explicitly approved certificate for this endpoint, never a global TLS bypass.
+    func trustCertificate() {
+        guard snapshot.state == .awaitingChallenge, !isPerformingCommand,
+              let challenge = snapshot.challenge, challenge.kind == "certificate",
+              let fingerprint = challenge.certificateSHA256,
+              let request = desiredRequest else { return }
+        UserDefaults.standard.set(fingerprint, forKey: certificateKey(for: request.profile))
+        desiredRequest = ConnectionRequest(profile: request.profile, password: request.password,
+            trustedCertificateSHA256: fingerprint)
+        answerChallenge("trust")
+    }
+
     /// A deliberate disconnect clears reconnect intent before stopping the actual session.
     func disconnect(completion: ((Bool) -> Void)? = nil) {
         stoppedByUser = true
@@ -181,6 +193,7 @@ final class ConnectionController: ObservableObject {
     }
 
     private func start(_ request: ConnectionRequest, save: Bool) {
+        let request = requestWithTrustedCertificate(request)
         desiredRequest = request
         activeProfile = request.profile
         saveOnSuccess = save
@@ -229,7 +242,8 @@ final class ConnectionController: ObservableObject {
                     let saved = try requiredStore().save(request.profile, password: request.password)
                     profiles = try requiredStore().load()
                     activeProfile = saved
-                    desiredRequest = ConnectionRequest(profile: saved, password: request.password)
+                    desiredRequest = ConnectionRequest(profile: saved, password: request.password,
+                        trustedCertificateSHA256: request.trustedCertificateSHA256)
                 } catch ProfileStoreError.cleanupFailed {
                     do { profiles = try requiredStore().load() }
                     catch { errorMessage = error.localizedDescription; return }
@@ -296,7 +310,9 @@ final class ConnectionController: ObservableObject {
                 guard response.ok, response.snapshot.state == .disconnected else { self.scheduleReconnect(); return }
                 do {
                     try self.client.authorize()
-                    self.perform(HelperCommand(kind: "connect", request: request, challengeID: nil, answer: nil))
+                    let updatedRequest = self.requestWithTrustedCertificate(request)
+                    self.desiredRequest = updatedRequest
+                    self.perform(HelperCommand(kind: "connect", request: updatedRequest, challengeID: nil, answer: nil))
                 } catch {
                     self.snapshot = ConnectionSnapshot(state: .failed, sessionID: nil,
                         message: error.localizedDescription, challenge: nil)
@@ -308,5 +324,14 @@ final class ConnectionController: ObservableObject {
     private func requiredStore() throws -> ProfileStore {
         guard let store else { throw CocoaError(.fileReadUnknown) }
         return store
+    }
+
+    private func requestWithTrustedCertificate(_ request: ConnectionRequest) -> ConnectionRequest {
+        ConnectionRequest(profile: request.profile, password: request.password,
+            trustedCertificateSHA256: UserDefaults.standard.string(forKey: certificateKey(for: request.profile)))
+    }
+
+    private func certificateKey(for profile: ConnectionProfile) -> String {
+        "trustedCertificateSHA256.\(profile.serverHost.lowercased()):\(profile.serverPort)"
     }
 }
