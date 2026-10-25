@@ -46,12 +46,14 @@ struct ConnectionSnapshot: Codable {
     var sessionID: String?
     var message: String?
     var challenge: AuthChallenge?
+    var retryable: Bool
 
-    init(state: ConnectionState, sessionID: String? = nil, message: String? = nil, challenge: AuthChallenge? = nil) {
+    init(state: ConnectionState, sessionID: String? = nil, message: String? = nil, challenge: AuthChallenge? = nil, retryable: Bool = false) {
         self.state = state
         self.sessionID = sessionID
         self.message = message
         self.challenge = challenge
+        self.retryable = retryable
     }
 }
 
