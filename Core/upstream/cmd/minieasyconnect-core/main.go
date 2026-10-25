@@ -37,6 +37,8 @@ import (
 	"inet.af/netaddr"
 )
 
+const localDNSAddress = "127.0.0.1"
+
 type configuration struct {
 	ServerHost               string `json:"serverHost"`
 	ServerPort               int    `json:"serverPort"`
@@ -245,6 +247,9 @@ func (s *session) run(c configuration) error {
 	if err != nil {
 		return err
 	}
+	if ip == nil || ip.To4() == nil {
+		return errors.New("TUN: IPv4 address unavailable")
+	}
 	dnsServers, err := vpn.DNSServers()
 	if err != nil {
 		return fmt.Errorf("DNS policy: %w", err)
@@ -287,7 +292,7 @@ func (s *session) run(c configuration) error {
 	if !ipSet.Contains(dnsIP) {
 		routes = append(routes, netaddr.IPPrefixFrom(dnsIP, 32).String())
 	}
-	plan := &routePlan{session: s, stack: st, dnsAddress: ip.String()}
+	plan := &routePlan{session: s, stack: st, dnsAddress: localDNSAddress}
 	defer plan.cleanup()
 	if err = plan.install(s.ctx, routes); err != nil {
 		return fmt.Errorf("route: %w", err)
@@ -303,12 +308,23 @@ func (s *session) run(c configuration) error {
 	}
 	runErrors := make(chan error, 1)
 	go func() { runErrors <- st.RunContext(s.ctx) }()
-	udp, err := net.ListenPacket("udp4", net.JoinHostPort(ip.String(), "53"))
+	// SO_REUSEADDR permits the concrete loopback address beside a wildcard
+	// listener on Darwin; SO_REUSEPORT remains disabled so exact binds conflict.
+	listenConfig := net.ListenConfig{Control: func(network, address string, raw syscall.RawConn) error {
+		var socketErr error
+		if err := raw.Control(func(fd uintptr) {
+			socketErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+		}); err != nil {
+			return err
+		}
+		return socketErr
+	}}
+	udp, err := listenConfig.ListenPacket(s.ctx, "udp4", net.JoinHostPort(localDNSAddress, "53"))
 	if err != nil {
 		return fmt.Errorf("DNS listener: %w", err)
 	}
 	defer udp.Close()
-	tcp, err := net.Listen("tcp4", net.JoinHostPort(ip.String(), "53"))
+	tcp, err := net.Listen("tcp4", net.JoinHostPort(localDNSAddress, "53"))
 	if err != nil {
 		return fmt.Errorf("DNS listener: %w", err)
 	}
@@ -330,7 +346,7 @@ func (s *session) run(c configuration) error {
 	if err != nil {
 		return fmt.Errorf("DNS readiness: %w", err)
 	}
-	s.emit(event{Kind: "ready", InterfaceName: st.InterfaceName(), DNSAddress: ip.String(), Routes: routes, CertificateSHA256: pinnedCertificate})
+	s.emit(event{Kind: "ready", InterfaceName: st.InterfaceName(), DNSAddress: localDNSAddress, Routes: routes, CertificateSHA256: pinnedCertificate})
 	select {
 	case <-s.ctx.Done():
 		return s.ctx.Err()
@@ -588,25 +604,24 @@ func publicError(err error) (string, string) {
 	}
 	var dnsError *net.DNSError
 	var operationError *net.OpError
-	if errors.As(err, &dnsError) || errors.As(err, &operationError) || errors.Is(err, context.DeadlineExceeded) {
-		return "connectionFailed", "无法访问 VPN 服务端，请检查地址和网络连接"
-	}
 	message := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(message, "administrator"):
 		return "authorizationRequired", "连接需要系统授权"
-	case strings.Contains(message, "authentication"):
-		return "authenticationFailed", "登录失败，请检查地址、账号、密码及验证信息"
-	case strings.Contains(message, "dns listener"):
+	case strings.HasPrefix(message, "dns listener"):
 		return "dnsUnavailable", "DNS 监听启动失败，请检查端口占用"
-	case strings.Contains(message, "dns"):
+	case strings.HasPrefix(message, "dns"):
 		return "dnsUnavailable", "VPN 域名解析服务不可用"
-	case strings.Contains(message, "route"):
+	case strings.HasPrefix(message, "route"):
 		return "routeFailed", "内网路由配置失败"
-	case strings.Contains(message, "resources"):
+	case strings.HasPrefix(message, "resources"):
 		return "resourcesUnavailable", "服务端未提供可用的内网资源"
 	case strings.Contains(message, "tcp-only"):
 		return "unsupportedMode", "服务端仅支持 TCP 隧道，当前版本需要 TUN 能力"
+	case errors.As(err, &dnsError) || errors.As(err, &operationError) || errors.Is(err, context.DeadlineExceeded):
+		return "connectionFailed", "无法访问 VPN 服务端，请检查地址和网络连接"
+	case strings.HasPrefix(message, "authentication"):
+		return "authenticationFailed", "登录失败，请检查地址、账号、密码及验证信息"
 	default:
 		return "connectionFailed", "VPN 连接失败，请检查网络和服务端配置"
 	}
