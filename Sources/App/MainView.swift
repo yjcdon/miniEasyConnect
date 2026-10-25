@@ -14,16 +14,6 @@ struct MainView: View {
                 .padding(.bottom, 24)
             Divider()
             records
-            Divider()
-            HStack(spacing: 7) {
-                Image(systemName: "lock.shield")
-                Text("密码保存在系统钥匙串")
-                Spacer()
-            }
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 14)
         }
         .frame(width: 480, height: 540)
         .background(Color(nsColor: .windowBackgroundColor))
