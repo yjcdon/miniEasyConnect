@@ -74,8 +74,12 @@ final class NetworkRecovery {
             throw HelperFailure.invalidRequest("核心返回了无效的 DNS 地址。")
         }
         let preferences = try makePreferences()
+        try lock(preferences)
+        defer { SCPreferencesUnlock(preferences) }
         let dns = try dnsProtocol(preferences, serviceID: journal!.serviceID)
-        var configuration = try decodeDictionary(journal!.originalDNS) ?? [:]
+        let current = SCNetworkProtocolGetConfiguration(dns) as? [String: Any]
+        journal!.originalDNS = try encodeDictionary(current)
+        var configuration = current ?? [:]
         configuration[kSCPropNetDNSServerAddresses as String] = [address]
         journal!.appliedDNS = try encodeDictionary(configuration)
         try save()
@@ -86,18 +90,19 @@ final class NetworkRecovery {
     func restoreDNS() throws {
         guard let record = journal, record.active, let applied = try decodeDictionary(record.appliedDNS) else { return }
         let preferences = try makePreferences()
+        try lock(preferences)
+        defer { SCPreferencesUnlock(preferences) }
         let dns = try dnsProtocol(preferences, serviceID: record.serviceID)
         let current = SCNetworkProtocolGetConfiguration(dns) as? [String: Any]
         let original = try decodeDictionary(record.originalDNS)
-        if dictionariesEqual(current, original) {
-            journal!.appliedDNS = nil
-            try save()
-            return
+        let key = kSCPropNetDNSServerAddresses as String
+        if (current?[key] as? [String]) == (applied[key] as? [String]) {
+            var restored = current ?? [:]
+            restored[key] = original?[key]
+            try setDNS(restored.isEmpty && original == nil ? nil : restored,
+                       protocol: dns, preferences: preferences)
         }
-        guard dictionariesEqual(current, applied) else {
-            throw HelperFailure.operation("网络设置已被其他程序修改，未覆盖新设置。请检查系统 DNS。")
-        }
-        try setDNS(original, protocol: dns, preferences: preferences)
+        // External changes to server addresses now own that field; preserve them and release our journal.
         journal!.appliedDNS = nil
         try save()
     }
@@ -147,14 +152,17 @@ final class NetworkRecovery {
 
     private func setDNS(_ configuration: [String: Any]?, protocol dns: SCNetworkProtocol,
                         preferences: SCPreferences) throws {
-        guard SCPreferencesLock(preferences, true) else {
-            throw HelperFailure.operation("无法锁定系统网络配置。")
-        }
-        defer { SCPreferencesUnlock(preferences) }
         guard SCNetworkProtocolSetConfiguration(dns, configuration as CFDictionary?),
               SCPreferencesCommitChanges(preferences), SCPreferencesApplyChanges(preferences) else {
             throw HelperFailure.operation("无法更新系统 DNS 配置。")
         }
+    }
+
+    private func lock(_ preferences: SCPreferences) throws {
+        guard SCPreferencesLock(preferences, false) else {
+            throw HelperFailure.operation("无法锁定系统网络配置。")
+        }
+        SCPreferencesSynchronize(preferences)
     }
 
     private func save() throws {
@@ -173,14 +181,6 @@ final class NetworkRecovery {
             throw HelperFailure.operation("网络恢复记录格式错误。")
         }
         return dictionary
-    }
-
-    private func dictionariesEqual(_ left: [String: Any]?, _ right: [String: Any]?) -> Bool {
-        switch (left, right) {
-        case (nil, nil): return true
-        case (let left?, let right?): return NSDictionary(dictionary: left).isEqual(to: right)
-        default: return false
-        }
     }
 
     private func command(_ executable: String, _ arguments: [String]) throws -> (status: Int32, output: String) {
