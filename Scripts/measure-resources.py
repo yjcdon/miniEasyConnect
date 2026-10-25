@@ -2,11 +2,16 @@
 """Measure all processes in an app bundle without collecting connection arguments."""
 
 import argparse
+import ctypes
 import json
 import statistics
 import subprocess
 import time
 from pathlib import Path
+
+LIBPROC = ctypes.CDLL("/usr/lib/libproc.dylib")
+LIBPROC.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+LIBPROC.proc_pidpath.restype = ctypes.c_int
 
 
 def cpu_seconds(value):
@@ -23,7 +28,13 @@ def sample(bundle):
     processes = {}
     for line in output.splitlines():
         parts = line.strip().split(None, 3)
-        if len(parts) == 4 and parts[3].startswith(str(bundle) + "/"):
+        if len(parts) != 4:
+            continue
+        if parts[3].startswith("Contents/"):
+            path = ctypes.create_string_buffer(4096)
+            if LIBPROC.proc_pidpath(int(parts[0]), path, len(path)) > 0:
+                parts[3] = path.value.decode("utf-8")
+        if parts[3].startswith(str(bundle) + "/"):
             pid, cpu, rss, executable = parts
             processes[int(pid)] = {
                 "name": Path(executable).name,
