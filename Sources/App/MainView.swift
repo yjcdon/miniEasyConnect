@@ -39,7 +39,7 @@ struct MainView: View {
 
     private var statusHeader: some View {
         VStack(spacing: 12) {
-            Button { controller.newConnection() } label: {
+            Button { controller.connectLastUsed() } label: {
                 ZStack {
                     Circle().fill(statusColor.opacity(0.10)).frame(width: 76, height: 76)
                     if controller.isBusy && controller.snapshot.state != .awaitingAuthorization {
@@ -52,7 +52,7 @@ struct MainView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("新建连接")
+            .accessibilityLabel(controller.lastUsedProfile.map { "连接 \($0.displayName)" } ?? "新建连接")
             .disabled(controller.isBusy || ![.disconnected, .failed].contains(controller.snapshot.state))
             Text(controller.stateTitle).font(.system(size: 23, weight: .semibold))
             if let description = statusDescription {

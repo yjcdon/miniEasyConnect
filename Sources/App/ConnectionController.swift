@@ -35,6 +35,7 @@ final class ConnectionController: ObservableObject {
     private var networkSignature = ""
     private var notifications: [NSObjectProtocol] = []
     private var stoppedByUser = true
+    private let lastUsedProfileKey = "lastUsedConnectionProfileID"
 
     init() {
         do {
@@ -90,6 +91,18 @@ final class ConnectionController: ObservableObject {
         editorError = nil
         editingProfile = nil
         showingEditor = true
+    }
+
+    var lastUsedProfile: ConnectionProfile? {
+        let lastID = UserDefaults.standard.string(forKey: lastUsedProfileKey)
+        return profiles.first { $0.id.uuidString == lastID } ?? profiles.first
+    }
+
+    /// Reuses the latest connection record across launches, or opens the first-connection form.
+    func connectLastUsed() {
+        guard !isBusy, !hasConnection else { return }
+        if let profile = lastUsedProfile { connect(profile) }
+        else { newConnection() }
     }
 
     func edit(_ profile: ConnectionProfile) {
@@ -191,6 +204,9 @@ final class ConnectionController: ObservableObject {
         do {
             try requiredStore().delete(profile)
             profiles = try requiredStore().load()
+            if UserDefaults.standard.string(forKey: lastUsedProfileKey) == profile.id.uuidString {
+                UserDefaults.standard.removeObject(forKey: lastUsedProfileKey)
+            }
             if activeProfile?.id == profile.id {
                 stoppedByUser = true
                 retryTask?.cancel()
@@ -323,6 +339,7 @@ final class ConnectionController: ObservableObject {
         let request = requestWithTrustedCertificate(request)
         desiredRequest = request
         activeProfile = request.profile
+        UserDefaults.standard.set(request.profile.id.uuidString, forKey: lastUsedProfileKey)
         do {
             try client.authorize()
             perform(HelperCommand(kind: "connect", request: request, challengeID: nil, answer: nil))
