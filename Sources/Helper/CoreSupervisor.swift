@@ -6,6 +6,7 @@ private struct CoreConfiguration: Encodable {
     let serverPort: Int
     let username: String
     let password: String
+    let trustedCertificateSHA256: String?
 }
 
 private struct CoreCommand: Encodable {
@@ -30,6 +31,7 @@ private struct CoreEvent: Decodable {
     let challengeID: String?
     let challengeKind: String?
     let imageBase64: String?
+    let certificateSHA256: String?
 }
 
 /// Owns the sole active core process and coordinates cleanup independently from the user interface.
@@ -181,7 +183,8 @@ final class CoreSupervisor {
                                   config: CoreConfiguration(serverHost: profile.serverHost,
                                                             serverPort: profile.serverPort,
                                                             username: profile.username,
-                                                            password: request.password)))
+                                                            password: request.password,
+                                                            trustedCertificateSHA256: request.trustedCertificateSHA256)))
             scheduleConnectTimeout(sessionID: sessionID)
         } catch {
             pendingFailure = "无法启动 VPN 核心。"
@@ -295,7 +298,8 @@ final class CoreSupervisor {
             connectDeadline?.cancel()
             update(ConnectionSnapshot(state: .awaitingChallenge, sessionID: event.sessionID,
                                       challenge: AuthChallenge(id: id, kind: kind,
-                                                               message: event.message, imageBase64: event.imageBase64)))
+                                                               message: event.message, imageBase64: event.imageBase64,
+                                                               certificateSHA256: event.certificateSHA256)))
         case "ready":
             guard let address = event.dnsAddress else {
                 throw HelperFailure.operation("核心未提供 DNS 配置。")
