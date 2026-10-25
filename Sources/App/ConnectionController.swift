@@ -7,7 +7,9 @@ import SwiftUI
 @MainActor
 final class ConnectionController: ObservableObject {
     @Published private(set) var profiles: [ConnectionProfile] = []
-    @Published private(set) var snapshot = ConnectionSnapshot(state: .disconnected, sessionID: nil, message: nil, challenge: nil)
+    @Published private(set) var snapshot = ConnectionSnapshot(state: .disconnected, sessionID: nil, message: nil, challenge: nil) {
+        didSet { recordConnectionStability(previous: oldValue) }
+    }
     @Published private(set) var activeProfile: ConnectionProfile?
     @Published var errorMessage: String?
     @Published var editorError: String?
@@ -24,6 +26,8 @@ final class ConnectionController: ObservableObject {
     private var retryTask: Task<Void, Never>?
     private var retryCount = 0
     private let maxRetries = 4
+    private var connectedSince: TimeInterval?
+    private let stableConnectionDuration: TimeInterval = 30
     private let monitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "miniEasyConnect.network")
     private var networkAvailable = true
@@ -294,6 +298,7 @@ final class ConnectionController: ObservableObject {
         retryTask?.cancel()
         retryTask = nil
         retryCount = 0
+        connectedSince = nil
         if hasConnection {
             perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
                 guard let self, !self.stoppedByUser, response.ok, response.snapshot.state == .disconnected else { return }
@@ -339,12 +344,23 @@ final class ConnectionController: ObservableObject {
         }
     }
 
+    /// Preserves the retry budget until a connection has remained usable for thirty seconds.
+    private func recordConnectionStability(previous: ConnectionSnapshot) {
+        if snapshot.state == .connected && previous.state == .connected && snapshot.sessionID == previous.sessionID {
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if let connectedSince, now - connectedSince >= stableConnectionDuration {
+            retryCount = 0
+        }
+        connectedSince = snapshot.state == .connected ? now : nil
+    }
+
     private func receive(_ state: ConnectionSnapshot) {
         snapshot = state
         if state.state == .connected {
             retryTask?.cancel()
             retryTask = nil
-            retryCount = 0
         }
         if state.state == .failed && !stoppedByUser {
             retryTask?.cancel()
@@ -384,6 +400,10 @@ final class ConnectionController: ObservableObject {
 
     private func scheduleReconnect() {
         guard retryTask == nil, !stoppedByUser, networkAvailable, desiredRequest != nil else { return }
+        if snapshot.state == .connected {
+            snapshot = ConnectionSnapshot(state: .reconnecting, sessionID: snapshot.sessionID,
+                message: "正在恢复连接，请稍候。", challenge: nil)
+        }
         guard retryCount < maxRetries else {
             stoppedByUser = true
             snapshot = ConnectionSnapshot(state: .failed, sessionID: snapshot.sessionID,
