@@ -157,6 +157,12 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 	}
 }
 
+// MatchDomainResources returns the server policy for a normalized DNS name.
+func (r *Resolver) MatchDomainResources(host string) ([]client.DomainResource, bool) {
+	_, resources, matched := matchDomainResource(r.domainIndex, normalizeHostname(host))
+	return resources, matched
+}
+
 func (r *Resolver) resolveCoordinated(ctx context.Context, host string, lookup func(context.Context) (net.IP, error)) (net.IP, error) {
 	r.resolutionMu.Lock()
 	if r.resolutionClosed {

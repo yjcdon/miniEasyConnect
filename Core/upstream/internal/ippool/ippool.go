@@ -20,6 +20,8 @@ type IPPool[T any] struct {
 	minIP      uint32
 	maxIP      uint32
 	currentIP  uint32
+	entryOrder []uint32
+	nextEntry  int
 }
 
 func NewIPPool[T any](cidr string) (*IPPool[T], error) {
@@ -50,6 +52,24 @@ func (p *IPPool[T]) SetIPDomain(ip net.IP, domain string, res T) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Keep remembered real DNS addresses bounded during long running sessions.
+	if previous, exists := p.ipToDomain[ipUint]; exists {
+		if p.domainToIP[previous.domain] == previous {
+			delete(p.domainToIP, previous.domain)
+		}
+	} else if len(p.entryOrder) < 4096 {
+		p.entryOrder = append(p.entryOrder, ipUint)
+	} else {
+		oldIP := p.entryOrder[p.nextEntry]
+		if previous := p.ipToDomain[oldIP]; previous != nil {
+			if p.domainToIP[previous.domain] == previous {
+				delete(p.domainToIP, previous.domain)
+			}
+			delete(p.ipToDomain, oldIP)
+		}
+		p.entryOrder[p.nextEntry] = ipUint
+		p.nextEntry = (p.nextEntry + 1) % len(p.entryOrder)
+	}
 
 	newEntry := &entry[T]{
 		ipUint:   ipUint,
