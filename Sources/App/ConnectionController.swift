@@ -296,7 +296,7 @@ final class ConnectionController: ObservableObject {
         retryCount = 0
         if hasConnection {
             perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
-                guard let self, response.ok, response.snapshot.state == .disconnected else { return }
+                guard let self, !self.stoppedByUser, response.ok, response.snapshot.state == .disconnected else { return }
                 self.start(request)
             }
         } else { start(request) }
