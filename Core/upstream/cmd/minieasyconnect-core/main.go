@@ -254,12 +254,9 @@ func (s *session) run(c configuration) error {
 	if err != nil {
 		return fmt.Errorf("DNS policy: %w", err)
 	}
-	if len(dnsServers) == 0 {
-		return errors.New("DNS policy: no DNS servers")
-	}
-	remoteDNS := net.ParseIP(dnsServers[0])
-	if remoteDNS == nil || remoteDNS.To4() == nil {
-		return errors.New("DNS policy: IPv4 DNS required")
+	serverDNS, err := ipv4DNSServers(dnsServers)
+	if err != nil {
+		return err
 	}
 	resources, err := vpn.IPResources()
 	domains, domainErr := vpn.DomainResources()
@@ -275,9 +272,10 @@ func (s *session) run(c configuration) error {
 		ipSet, _ = builder.IPSet()
 	}
 	// The server supplied DNS endpoint is itself an authorized tunnel service.
-	dnsIP, _ := netaddr.FromStdIP(remoteDNS)
-	for _, network := range []string{"tcp", "udp"} {
-		resources = append(resources, client.IPResource{IPMin: remoteDNS, IPMax: remoteDNS, PortMin: 53, PortMax: 53, Protocol: network})
+	for _, address := range serverDNS {
+		for _, network := range []string{"tcp", "udp"} {
+			resources = append(resources, client.IPResource{IPMin: address, IPMax: address, PortMin: 53, PortMax: 53, Protocol: network})
+		}
 	}
 	st, err := tun.NewStack(vpn, false, false, resources)
 	if err != nil {
@@ -289,8 +287,11 @@ func (s *session) run(c configuration) error {
 	for _, prefix := range ipSet.Prefixes() {
 		routes = append(routes, prefix.String())
 	}
-	if !ipSet.Contains(dnsIP) {
-		routes = append(routes, netaddr.IPPrefixFrom(dnsIP, 32).String())
+	for _, address := range serverDNS {
+		dnsIP, _ := netaddr.FromStdIP(address)
+		if !ipSet.Contains(dnsIP) {
+			routes = append(routes, netaddr.IPPrefixFrom(dnsIP, 32).String())
+		}
 	}
 	plan := &routePlan{session: s, stack: st, dnsAddress: localDNSAddress}
 	defer plan.cleanup()
@@ -298,9 +299,9 @@ func (s *session) run(c configuration) error {
 		return fmt.Errorf("route: %w", err)
 	}
 	dnsResources, _ := vpn.DNSResource()
-	resolver := resolve.NewResolver(st, remoteDNS.String(), remoteDNS.String(), 300, domains, dnsResources, true)
+	resolver := resolve.NewResolver(st, serverDNS[0].String(), serverDNS[0].String(), 300, domains, dnsResources, true)
 	defer resolver.Close()
-	forwarder := &dnsForwarder{stack: st, remote: remoteDNS.String(), ctx: s.ctx, resolver: resolver, plan: plan, static: dnsResources, capacity: make(chan struct{}, 64)}
+	forwarder := &dnsForwarder{stack: st, servers: serverDNS, ctx: s.ctx, resolver: resolver, plan: plan, static: dnsResources, capacity: make(chan struct{}, 64)}
 	st.SetupResolve(forwarder)
 	st.SetupIPPool(resolver.IPPool)
 	if err = st.Prepare(); err != nil {
@@ -412,7 +413,7 @@ func (s *session) verifyServerBeforeCredentials(c configuration, dialer *underla
 
 type dnsForwarder struct {
 	stack    *tun.Stack
-	remote   string
+	servers  []net.IP
 	ctx      context.Context
 	resolver *resolve.Resolver
 	plan     *routePlan
@@ -420,7 +421,39 @@ type dnsForwarder struct {
 	capacity chan struct{}
 }
 
-func (f *dnsForwarder) CheckDnsHijack(ip net.IP) bool { return !ip.Equal(net.ParseIP(f.remote)) }
+func (f *dnsForwarder) CheckDnsHijack(ip net.IP) bool {
+	for _, address := range f.servers {
+		if ip.Equal(address) {
+			return false
+		}
+	}
+	return true
+}
+
+// ipv4DNSServers preserves server policy order, removes duplicates and excludes unsupported IPv6 entries.
+func ipv4DNSServers(values []string) ([]net.IP, error) {
+	var addresses []net.IP
+	seen := make(map[string]bool)
+	for _, value := range values {
+		address := net.ParseIP(strings.TrimSpace(value))
+		if address == nil {
+			return nil, errors.New("DNS policy: invalid server address")
+		}
+		address = address.To4()
+		if address == nil || address.IsUnspecified() {
+			continue
+		}
+		canonical := address.String()
+		if !seen[canonical] {
+			addresses = append(addresses, address)
+			seen[canonical] = true
+		}
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("DNS policy: no usable IPv4 DNS servers")
+	}
+	return addresses, nil
+}
 
 // HandleDnsMsg forwards complete DNS messages through the tunnel, without a public fallback.
 func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
@@ -434,13 +467,13 @@ func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, 
 	default:
 		return nil, errors.New("DNS request limit reached")
 	}
-	exchange := func(attemptCtx context.Context, network string) (*dns.Msg, error) {
+	exchange := func(attemptCtx context.Context, network string, remote net.IP) (*dns.Msg, error) {
 		var conn net.Conn
 		var err error
 		if network == "udp" {
-			conn, err = f.stack.DialUDP(attemptCtx, &net.UDPAddr{IP: net.ParseIP(f.remote), Port: 53})
+			conn, err = f.stack.DialUDP(attemptCtx, &net.UDPAddr{IP: remote, Port: 53})
 		} else {
-			conn, err = f.stack.DialTCP(attemptCtx, &net.TCPAddr{IP: net.ParseIP(f.remote), Port: 53})
+			conn, err = f.stack.DialTCP(attemptCtx, &net.TCPAddr{IP: remote, Port: 53})
 		}
 		if err != nil {
 			return nil, err
@@ -483,12 +516,29 @@ func (f *dnsForwarder) HandleDnsMsg(ctx context.Context, m *dns.Msg) (*dns.Msg, 
 		}
 	}
 	if response == nil {
-		// A UDP timeout must leave time for a real TCP attempt within the same total budget.
-		udpCtx, cancelUDP := context.WithTimeout(queryCtx, 3*time.Second)
-		response, err = exchange(udpCtx, "udp")
-		cancelUDP()
-		if err != nil || response.Truncated {
-			response, err = exchange(queryCtx, "tcp")
+		// Divide remaining time across remaining policy servers so the first cannot exhaust all retries.
+		for index, remote := range f.servers {
+			if queryCtx.Err() != nil {
+				return nil, queryCtx.Err()
+			}
+			deadline, _ := queryCtx.Deadline()
+			serverBudget := time.Until(deadline) / time.Duration(len(f.servers)-index)
+			serverCtx, cancelServer := context.WithTimeout(queryCtx, serverBudget)
+			udpBudget := serverBudget / 2
+			if udpBudget > 3*time.Second {
+				udpBudget = 3 * time.Second
+			}
+			udpCtx, cancelUDP := context.WithTimeout(serverCtx, udpBudget)
+			response, err = exchange(udpCtx, "udp", remote)
+			cancelUDP()
+			if err != nil || response.Truncated {
+				response, err = exchange(serverCtx, "tcp", remote)
+			}
+			cancelServer()
+			// Any valid DNS reply, including NXDOMAIN/SERVFAIL, retains its original meaning.
+			if err == nil {
+				break
+			}
 		}
 	}
 	if err != nil {
