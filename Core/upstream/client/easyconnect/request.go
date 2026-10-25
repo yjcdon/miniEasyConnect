@@ -33,6 +33,17 @@ var errTOTPRequired = errors.New("TOTP required")
 var errCertRequired = errors.New("cert required")
 var errNotFound = errors.New("not found")
 
+// ErrInvalidLoginResponse identifies endpoints that do not provide the required login contract.
+var ErrInvalidLoginResponse = errors.New("unsupported EasyConnect login response")
+
+func requiredLoginValue(body []byte, field string) (string, error) {
+	match := regexp.MustCompile("<" + field + ">([^<]+)</" + field + ">").FindSubmatch(body)
+	if len(match) != 2 {
+		return "", fmt.Errorf("%w: missing %s", ErrInvalidLoginResponse, field)
+	}
+	return string(match[1]), nil
+}
+
 func (c *Client) requestTwfID(graphCodeFile string) error {
 	err := c.loginAuthAndPsw(graphCodeFile)
 	if err != nil {
@@ -76,11 +87,17 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
 	}(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: HTTP status %d", ErrInvalidLoginResponse, resp.StatusCode)
+	}
 
 	var buf bytes.Buffer
-	_, err = io.Copy(&buf, resp.Body)
+	_, err = io.Copy(&buf, io.LimitReader(resp.Body, (1<<20)+1))
 	if err != nil {
 		return err
+	}
+	if buf.Len() > 1<<20 {
+		return fmt.Errorf("%w: login response exceeds size limit", ErrInvalidLoginResponse)
 	}
 
 	log.DebugPrintln("Response:", buf.String())
@@ -90,10 +107,16 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 		log.Printf("VPN server version: %s", string(vpnMatch[1]))
 	}
 
-	c.twfID = string(regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())[1])
+	c.twfID, err = requiredLoginValue(buf.Bytes(), "TwfID")
+	if err != nil {
+		return err
+	}
 	log.Printf("TWFID: %s", c.twfID)
 
-	rsaKey := string(regexp.MustCompile(`<RSA_ENCRYPT_KEY>(.*)</RSA_ENCRYPT_KEY>`).FindSubmatch(buf.Bytes())[1])
+	rsaKey, err := requiredLoginValue(buf.Bytes(), "RSA_ENCRYPT_KEY")
+	if err != nil {
+		return err
+	}
 	log.Printf("RSA key: %s", rsaKey)
 
 	rsaExpMatch := regexp.MustCompile(`<RSA_ENCRYPT_EXP>(.*)</RSA_ENCRYPT_EXP>`).FindSubmatch(buf.Bytes())
@@ -118,9 +141,14 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	}
 
 	pubKey := rsa.PublicKey{}
-	pubKey.E, _ = strconv.Atoi(rsaExp)
+	pubKey.E, err = strconv.Atoi(rsaExp)
+	if err != nil {
+		return fmt.Errorf("%w: invalid RSA exponent", ErrInvalidLoginResponse)
+	}
 	modulus := big.Int{}
-	modulus.SetString(rsaKey, 16)
+	if _, ok := modulus.SetString(rsaKey, 16); !ok || modulus.Sign() <= 0 {
+		return fmt.Errorf("%w: invalid RSA key", ErrInvalidLoginResponse)
+	}
 	pubKey.N = &modulus
 
 	encryptedPassword, err := rsa.EncryptPKCS1v15(rand.Reader, &pubKey, []byte(password))
@@ -129,10 +157,10 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	}
 	encryptedPasswordHex := hex.EncodeToString(encryptedPassword)
 
-	rndImgMatch := regexp.MustCompile(`<RndImg>(.*)</RndImg>`).FindSubmatch(buf.Bytes())[1]
+	rndImgMatch := regexp.MustCompile(`<RndImg>(.*)</RndImg>`).FindSubmatch(buf.Bytes())
 	rndImg := "0"
-	if rndImgMatch != nil {
-		rndImg = string(rndImgMatch)
+	if len(rndImgMatch) == 2 {
+		rndImg = string(rndImgMatch[1])
 	}
 
 	randCode := ""
@@ -375,7 +403,10 @@ func (c *Client) loginTOTP() error {
 		return errors.New("TOTP verification failed: " + buf.String())
 	}
 
-	c.twfID = string(regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())[1])
+	c.twfID, err = requiredLoginValue(buf.Bytes(), "TwfID")
+	if err != nil {
+		return err
+	}
 	log.Print("TOTP verification success")
 
 	return nil

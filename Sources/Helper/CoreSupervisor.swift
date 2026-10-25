@@ -450,6 +450,7 @@ final class CoreSupervisor {
         case "unsupportedMode": return "此服务端连接模式暂不支持 TUN。"
         case "authorizationRequired": return "VPN 核心未获得系统网络操作权限。"
         case "invalidConfiguration": return "连接配置无效，请检查地址和账号。"
+        case "unsupportedServer": return "该地址未返回受支持的 EasyConnect 登录信息，请检查 VPN 地址。"
         default: return "VPN 连接失败，请检查地址、网络或认证信息后重试。"
         }
     }

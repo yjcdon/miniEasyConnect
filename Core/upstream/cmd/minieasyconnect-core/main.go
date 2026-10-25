@@ -367,7 +367,7 @@ func (s *session) verifyServerBeforeCredentials(c configuration, dialer *underla
 		return fingerprint, nil
 	}
 	answer, err := s.askEvent(event{Kind: "challenge", ChallengeKind: "certificate", CertificateSHA256: fingerprint,
-		Message: "系统无法验证此服务端证书。仅在确认服务端身份后信任此证书。SHA-256：" + strings.ToUpper(fingerprint)})
+		Message: "系统无法验证此服务端证书。仅在确认服务端身份后信任此证书。"})
 	if err != nil {
 		return "", err
 	}
@@ -577,6 +577,9 @@ func (f *dnsForwarder) ServeDNS(w dns.ResponseWriter, m *dns.Msg) {
 
 // publicError never exposes an upstream response, account, endpoint or credential.
 func publicError(err error) (string, string) {
+	if errors.Is(err, easyconnect.ErrInvalidLoginResponse) {
+		return "unsupportedServer", "该地址未返回受支持的 EasyConnect 登录信息，请检查 VPN 地址"
+	}
 	var unknown x509.UnknownAuthorityError
 	var hostname x509.HostnameError
 	var invalid x509.CertificateInvalidError
