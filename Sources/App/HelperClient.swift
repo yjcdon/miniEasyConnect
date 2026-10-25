@@ -121,26 +121,39 @@ final class HelperClient: NSObject, HelperObserver {
         connection.exportedInterface = NSXPCInterface(with: HelperObserver.self)
         connection.exportedObject = self
         connection.setCodeSigningRequirement(AppIdentity.signingRequirement(for: AppIdentity.helperID))
-        connection.interruptionHandler = { [weak self] in
-            DispatchQueue.main.async { self?.onInterruption?() }
-        }
-        connection.invalidationHandler = { [weak self] in
+        connection.interruptionHandler = { [weak self, weak connection] in
             DispatchQueue.main.async {
-                self?.connection = nil
-                self?.onInterruption?()
+                guard let self, let connection, self.connection === connection else { return }
+                self.onInterruption?()
+            }
+        }
+        connection.invalidationHandler = { [weak self, weak connection] in
+            DispatchQueue.main.async {
+                guard let self, let connection, self.connection === connection else { return }
+                self.connection = nil
+                self.onInterruption?()
             }
         }
         connection.resume()
         self.connection = connection
-        if let remote = connection.remoteObjectProxyWithErrorHandler({ [weak self] _ in
-            DispatchQueue.main.async { self?.onInterruption?() }
+        if let remote = connection.remoteObjectProxyWithErrorHandler({ [weak self, weak connection] _ in
+            DispatchQueue.main.async {
+                guard let self, let connection, self.connection === connection else { return }
+                self.onInterruption?()
+            }
         }) as? HelperProtocol {
-            remote.subscribe(self) { [weak self] response in
+            remote.subscribe(self) { [weak self, weak connection] response in
                 do {
                     let result = try JSONDecoder().decode(HelperResponse.self, from: response)
-                    DispatchQueue.main.async { self?.onSnapshot?(result.snapshot) }
+                    DispatchQueue.main.async {
+                        guard let self, let connection, self.connection === connection else { return }
+                        self.onSnapshot?(result.snapshot)
+                    }
                 } catch {
-                    DispatchQueue.main.async { self?.onInterruption?() }
+                    DispatchQueue.main.async {
+                        guard let self, let connection, self.connection === connection else { return }
+                        self.onInterruption?()
+                    }
                 }
             }
         }
