@@ -41,8 +41,8 @@ final class ConnectionController: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             // Ignore virtual interfaces so creating our own TUN cannot trigger a reconnect loop.
             let signature = path.availableInterfaces.filter {
-                [.wifi, .wiredEthernet, .cellular].contains($0.type)
-            }.map { $0.name }.joined(separator: ",")
+                [.wifi, .wiredEthernet, .cellular].contains($0.type) && path.usesInterfaceType($0.type)
+            }.map { $0.name }.sorted().joined(separator: ",")
             DispatchQueue.main.async { self?.networkChanged(available: path.status == .satisfied, signature: signature) }
         }
         monitor.start(queue: monitorQueue)
@@ -284,12 +284,8 @@ final class ConnectionController: ObservableObject {
 
     private func refreshAfterWake() {
         guard !stoppedByUser, desiredRequest != nil else { return }
-        client.send(HelperCommand(kind: "status", request: nil, challengeID: nil, answer: nil)) { [weak self] result in
-            guard let self else { return }
-            if case .success(let response) = result, response.snapshot.state == .connected {
-                self.receive(response.snapshot)
-            } else { self.scheduleReconnect() }
-        }
+        // The process surviving sleep does not prove its TCP/TLS session is still usable.
+        scheduleReconnect()
     }
 
     private func scheduleReconnect() {
