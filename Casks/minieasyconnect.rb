@@ -1,6 +1,6 @@
 cask "minieasyconnect" do
-  version "1.0.0"
-  sha256 "8fb1df4e8c6d99c59d926604419284f41d87ee4c703da3a4d3682e68d0fb596d"
+  version "1.0.1"
+  sha256 "05b6d0bad739a808b6e3f93693bb6401144e7792267bf526af6c9a22f8c20c0e"
 
   url "https://github.com/yjcdon/miniEasyConnect/releases/download/v#{version}/miniEasyConnect-v#{version}-macos-arm64.zip"
   name "miniEasyConnect"
