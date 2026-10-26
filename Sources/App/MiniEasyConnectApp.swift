@@ -5,6 +5,7 @@ import SwiftUI
 struct MiniEasyConnectApp: App {
     @NSApplicationDelegateAdaptor(MiniEasyConnectDelegate.self) private var delegate
     @StateObject private var controller = ConnectionController()
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
 
     var body: some Scene {
         Window("miniEasyConnect", id: "main") {
@@ -14,6 +15,10 @@ struct MiniEasyConnectApp: App {
         .defaultSize(width: 480, height: 540)
         .windowResizability(.contentSize)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Divider()
+                Toggle("显示菜单栏图标", isOn: $showMenuBarExtra)
+            }
             CommandGroup(replacing: .appTermination) {
                 Button("停用后台服务…") { controller.confirmDisableHelper() }
                     .disabled(controller.isPerformingCommand || controller.isDisablingHelper || controller.snapshot.state == .disconnecting)
@@ -23,7 +28,7 @@ struct MiniEasyConnectApp: App {
                     .disabled(controller.isDisablingHelper)
             }
         }
-        MenuBarExtra("miniEasyConnect", systemImage: "network") {
+        MenuBarExtra("miniEasyConnect", systemImage: "network", isInserted: $showMenuBarExtra) {
             ConnectionMenu(controller: controller)
         }
     }
