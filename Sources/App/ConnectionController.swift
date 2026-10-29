@@ -6,6 +6,7 @@ import SwiftUI
 /// Owns the user's connection intent and presents the helper's actual execution state.
 @MainActor
 final class ConnectionController: ObservableObject {
+    enum EditorField: Hashable { case address, username, password, note }
     @Published private(set) var profiles: [ConnectionProfile] = []
     @Published private(set) var snapshot = ConnectionSnapshot(state: .disconnected, sessionID: nil, message: nil, challenge: nil) {
         didSet { recordConnectionStability(previous: oldValue) }
@@ -14,6 +15,7 @@ final class ConnectionController: ObservableObject {
     @Published private(set) var switchingProfile: ConnectionProfile?
     @Published var errorMessage: String?
     @Published var editorError: String?
+    @Published var editorErrorField: EditorField?
     @Published var showingEditor = false
     @Published var editingProfile: ConnectionProfile?
     @Published var noteEditingProfile: ConnectionProfile?
@@ -99,6 +101,7 @@ final class ConnectionController: ObservableObject {
     func newConnection() {
         guard canStartConnection else { return }
         editorError = nil
+        editorErrorField = nil
         editingProfile = nil
         showingEditor = true
     }
@@ -117,6 +120,7 @@ final class ConnectionController: ObservableObject {
 
     func edit(_ profile: ConnectionProfile) {
         editorError = nil
+        editorErrorField = nil
         editingProfile = profile
         showingEditor = true
     }
@@ -181,7 +185,7 @@ final class ConnectionController: ObservableObject {
             showingEditor = false
             begin(request)
             if let warning { errorMessage = warning }
-        } catch { editorError = error.localizedDescription }
+        } catch { presentEditorError(error) }
     }
 
     func connect(_ profile: ConnectionProfile) {
@@ -190,8 +194,27 @@ final class ConnectionController: ObservableObject {
             let password = try requiredStore().password(for: profile)
             begin(ConnectionRequest(profile: profile, password: password))
         } catch {
-            errorMessage = error.localizedDescription
             edit(profile)
+            editorError = error.localizedDescription
+            editorErrorField = .password
+        }
+    }
+
+    /// Associates input failures with their field while preserving storage errors at form level.
+    func presentEditorError(_ error: Error) {
+        editorError = error.localizedDescription
+        switch error as? ProfileStoreError {
+        case .invalidAddress: editorErrorField = .address
+        case .missingUsername: editorErrorField = .username
+        case .missingPassword: editorErrorField = .password
+        default: editorErrorField = nil
+        }
+    }
+
+    func clearEditorError(for field: EditorField) {
+        if editorErrorField == field {
+            editorError = nil
+            editorErrorField = nil
         }
     }
 
@@ -380,8 +403,10 @@ final class ConnectionController: ObservableObject {
             self.isPerformingCommand = false
             switch result {
             case .success(let response):
-                self.receive(response.snapshot)
-                if !response.ok && !response.snapshot.retryable {
+                var state = response.snapshot
+                if !response.ok && state.message == nil { state.message = response.message }
+                self.receive(state)
+                if !response.ok && !state.retryable && (command.kind == "disconnect" || state.state != .failed) {
                     self.errorMessage = response.message ?? response.snapshot.message ?? "操作未完成，请重试。"
                 }
                 completion?(response)

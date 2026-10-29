@@ -60,13 +60,15 @@ struct MainView: View {
             .disabled(!connectionIconEnabled)
             Text(controller.stateTitle).font(.system(size: 23, weight: .semibold))
             if let description = statusDescription {
-                Text(description)
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .frame(maxWidth: 370, minHeight: 34)
-                    .textSelection(.enabled)
+                ScrollView {
+                    Text(description)
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .textSelection(.enabled)
+                }
+                .frame(width: 370, height: 48)
             }
             if controller.snapshot.state != .disconnected {
                 statusAction
@@ -257,8 +259,7 @@ private struct ConnectionEditor: View {
     @ViewState private var password = ""
     @ViewState private var passwordVisible = false
     @ViewState private var note = ""
-    @FocusState private var focusedField: Field?
-    private enum Field { case address, username, password, note }
+    @FocusState private var focusedField: ConnectionController.EditorField?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -268,17 +269,17 @@ private struct ConnectionEditor: View {
                     .font(.callout).foregroundColor(.secondary)
             }
             VStack(alignment: .leading, spacing: 14) {
-                field("VPN 地址") {
+                field("VPN 地址", id: .address) {
                     TextField("", text: $address)
                         .focused($focusedField, equals: .address)
                         .accessibilityLabel("VPN 地址")
                 }
-                field("账号") {
+                field("账号", id: .username) {
                     TextField("", text: $username)
                         .focused($focusedField, equals: .username)
                         .accessibilityLabel("账号")
                 }
-                field("密码") {
+                field("密码", id: .password) {
                     HStack(spacing: 8) {
                         Group {
                             if passwordVisible {
@@ -310,14 +311,14 @@ private struct ConnectionEditor: View {
                                     lineWidth: focusedField == .password ? 2 : 1)
                     }
                 }
-                field("备注（可选）") {
+                field("备注（可选）", id: .note) {
                     TextField("", text: $note)
                         .focused($focusedField, equals: .note)
                         .accessibilityLabel("备注")
                 }
             }
             .textFieldStyle(.roundedBorder)
-            if let error = controller.editorError {
+            if let error = controller.editorError, controller.editorErrorField == nil {
                 Text(error).font(.callout).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
@@ -340,16 +341,29 @@ private struct ConnectionEditor: View {
                 username = profile.username
                 note = profile.note ?? ""
                 do { password = try controller.passwordForEditing(profile) }
-                catch { controller.editorError = error.localizedDescription }
+                catch {
+                    controller.editorError = error.localizedDescription
+                    controller.editorErrorField = .password
+                }
                 focusedField = .password
             } else { focusedField = .address }
         }
+        .onChange(of: controller.editorErrorField) { field in
+            if let field { focusedField = field }
+        }
+        .onChange(of: address) { _ in controller.clearEditorError(for: .address) }
+        .onChange(of: username) { _ in controller.clearEditorError(for: .username) }
+        .onChange(of: password) { _ in controller.clearEditorError(for: .password) }
     }
 
-    private func field<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func field<Content: View>(_ title: String, id: ConnectionController.EditorField, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.callout.weight(.medium))
             content()
+            if controller.editorErrorField == id, let error = controller.editorError {
+                Text(error).font(.callout).foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
