@@ -88,7 +88,6 @@ type Client struct {
 	lifecycleCancel         context.CancelFunc
 	requestIPConn           net.Conn
 	requestIPConnMu         sync.Mutex
-	requestIPKeepAlive      sync.Once
 	keepAliveStarted        sync.Once
 	closeOnce               sync.Once
 	graphCodeFile           string
