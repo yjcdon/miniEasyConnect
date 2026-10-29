@@ -83,6 +83,25 @@ final class ConnectionController: ObservableObject {
     var canConnectLastUsed: Bool { canStartConnection && !hasConnection }
     var canDisconnect: Bool { hasConnection && !isPerformingCommand && !isDisablingHelper && snapshot.state != .disconnecting }
 
+    var canToggleConnection: Bool {
+        guard !isEditing, !isDisablingHelper else { return false }
+        if switchingProfile != nil { return !stoppedByUser }
+        switch snapshot.state {
+        case .disconnected, .failed: return canConnectLastUsed
+        case .connected: return canDisconnect
+        case .connecting, .reconnecting: return !stoppedByUser
+        case .awaitingAuthorization: return !isPerformingCommand
+        case .awaitingChallenge, .disconnecting: return false
+        }
+    }
+
+    /// The central icon starts the latest record or ends the user's current connection intent.
+    func toggleConnection() {
+        guard canToggleConnection else { return }
+        if hasConnection || snapshot.state == .awaitingAuthorization { disconnect() }
+        else { connectLastUsed() }
+    }
+
     var stateTitle: String {
         switch snapshot.state {
         case .disconnected: return "未连接"
@@ -278,6 +297,11 @@ final class ConnectionController: ObservableObject {
         retryTask?.cancel()
         retryTask = nil
         retryCount = 0
+        if snapshot.state == .awaitingAuthorization && !client.hasServiceConnection {
+            snapshot = ConnectionSnapshot(state: .disconnected)
+            completion?(true)
+            return
+        }
         perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
             let success = response.ok && response.snapshot.state == .disconnected
             if success { self?.client.invalidate() }

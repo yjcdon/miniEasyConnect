@@ -36,7 +36,7 @@ struct MainView: View {
 
     private var statusHeader: some View {
         VStack(spacing: 12) {
-            Button { controller.connectLastUsed() } label: {
+            Button { controller.toggleConnection() } label: {
                 ZStack {
                     Circle().fill(statusColor.opacity(connectionIconHovered && connectionIconEnabled ? 0.18 : 0.10))
                         .frame(width: 76, height: 76)
@@ -55,41 +55,37 @@ struct MainView: View {
             .onHover { connectionIconHovered = $0 }
             .disabled(!connectionIconEnabled)
             Text(controller.stateTitle).font(.system(size: 23, weight: .semibold))
-            if let description = statusDescription {
-                ScrollView {
-                    Text(description)
-                        .font(.callout)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .textSelection(.enabled)
+            ZStack {
+                Color.clear
+                if let description = statusDescription {
+                    ScrollView {
+                        Text(description)
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .textSelection(.enabled)
+                    }
                 }
-                .frame(width: 370, height: 48)
             }
-            if controller.snapshot.state != .disconnected {
+            .frame(width: 370, height: 48)
+            ZStack {
+                Color.clear
                 statusAction
                     .controlSize(.large)
-                    .frame(height: 34)
             }
+            .frame(height: 34)
         }
         .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private var statusAction: some View {
         switch controller.snapshot.state {
-        case .connected:
-            Button("断开连接") { controller.disconnect() }
-                .buttonStyle(.bordered)
-                .disabled(!controller.canDisconnect)
         case .awaitingAuthorization:
             HStack {
                 Button("打开系统设置") { controller.openAuthorizationSettings() }
                 Button("已允许，继续连接") { controller.retry() }.buttonStyle(.borderedProminent)
             }
-        case .connecting, .reconnecting, .awaitingChallenge:
-            Button("取消连接") { controller.disconnect() }.buttonStyle(.bordered)
-        case .disconnecting:
-            EmptyView()
         case .failed:
             HStack {
                 if controller.canEditCurrentConnection {
@@ -98,7 +94,7 @@ struct MainView: View {
                 Button("重试连接") { controller.retry() }.buttonStyle(.borderedProminent)
             }
             .disabled(controller.isPerformingCommand)
-        case .disconnected:
+        case .connected, .connecting, .reconnecting, .awaitingChallenge, .disconnecting, .disconnected:
             EmptyView()
         }
     }
@@ -108,11 +104,8 @@ struct MainView: View {
             HStack {
                 Text("连接记录").font(.headline)
                 Spacer()
-                Button { controller.newConnection() } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
-                    .help("新建连接")
-                    .accessibilityLabel("新建连接")
-                    .disabled(!controller.canStartConnection)
+                recordActionButton("新建连接", symbol: "plus") { controller.newConnection() }
+                    .padding(.trailing, 12)
             }
             if controller.profiles.isEmpty {
                 VStack(spacing: 6) {
@@ -153,35 +146,43 @@ struct MainView: View {
                     controller.connect(profile)
                 }.disabled(!controller.canStartConnection)
             }
-            Button { controller.edit(profile) } label: {
-                Image(systemName: "square.and.pencil")
-                    .frame(width: 14, height: 18)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!controller.canStartConnection)
-            .help("修改 \(profile.displayName)")
-            .accessibilityLabel("修改 \(profile.displayName)")
-            Button(role: .destructive) { controller.confirmDelete(profile) } label: {
-                Image(systemName: "trash")
-                    .frame(width: 28, height: 28)
-                    .foregroundColor(.white)
-                    .background(Color.red, in: RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .disabled(!controller.canStartConnection)
-            .help("删除 \(profile.displayName)")
-            .accessibilityLabel("删除 \(profile.displayName)")
+            recordActionButton("修改 \(profile.displayName)", symbol: "square.and.pencil") { controller.edit(profile) }
+            recordActionButton("删除 \(profile.displayName)", symbol: "trash", destructive: true) { controller.confirmDelete(profile) }
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
+    /// Uses one target size and surface treatment for adding, editing and deleting records.
+    private func recordActionButton(_ title: String, symbol: String, destructive: Bool = false,
+                                    action: @escaping () -> Void) -> some View {
+        Button(role: destructive ? .destructive : nil, action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14))
+                .frame(width: 28, height: 28)
+                .foregroundColor(destructive ? .white : .primary)
+                .background(destructive ? Color.red : Color(nsColor: .controlColor),
+                            in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .disabled(!controller.canStartConnection)
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
     private var connectionIconEnabled: Bool {
-        controller.canConnectLastUsed
+        controller.canToggleConnection
     }
 
     private var connectionIconLabel: String {
+        if let target = controller.switchingProfile { return "取消切换：\(target.displayName)" }
+        if controller.snapshot.state == .connected {
+            return controller.activeProfile.map { "断开：\($0.displayName)" } ?? "断开连接"
+        }
+        if [.connecting, .reconnecting, .awaitingAuthorization].contains(controller.snapshot.state) {
+            return "取消连接"
+        }
         if [.disconnected, .failed].contains(controller.snapshot.state) {
             return controller.lastUsedProfile.map { "连接：\($0.displayName)" } ?? "新建连接"
         }
