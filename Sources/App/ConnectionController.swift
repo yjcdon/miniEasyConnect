@@ -11,6 +11,7 @@ final class ConnectionController: ObservableObject {
         didSet { recordConnectionStability(previous: oldValue) }
     }
     @Published private(set) var activeProfile: ConnectionProfile?
+    @Published private(set) var switchingProfile: ConnectionProfile?
     @Published var errorMessage: String?
     @Published var editorError: String?
     @Published var showingEditor = false
@@ -255,6 +256,7 @@ final class ConnectionController: ObservableObject {
     /// A deliberate disconnect clears reconnect intent before stopping the actual session.
     func disconnect(completion: ((Bool) -> Void)? = nil) {
         stoppedByUser = true
+        switchingProfile = nil
         desiredRequest = nil
         retryTask?.cancel()
         retryTask = nil
@@ -270,6 +272,7 @@ final class ConnectionController: ObservableObject {
         guard !isDisablingHelper else { completion(false); return }
         retryTask?.cancel()
         stoppedByUser = true
+        switchingProfile = nil
         let noServiceStarted = snapshot.state == .failed && !client.hasServiceConnection
         if !client.hasServiceConnection && ([.disconnected, .awaitingAuthorization].contains(snapshot.state) || noServiceStarted) && !isPerformingCommand {
             desiredRequest = nil
@@ -338,14 +341,18 @@ final class ConnectionController: ObservableObject {
         retryCount = 0
         connectedSince = nil
         if hasConnection {
+            switchingProfile = request.profile
             perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
-                guard let self, !self.stoppedByUser, response.ok, response.snapshot.state == .disconnected else { return }
+                guard let self else { return }
+                self.switchingProfile = nil
+                guard !self.stoppedByUser, response.ok, response.snapshot.state == .disconnected else { return }
                 self.start(request)
             }
         } else { start(request) }
     }
 
     private func start(_ request: ConnectionRequest) {
+        switchingProfile = nil
         let request = requestWithTrustedCertificate(request)
         desiredRequest = request
         activeProfile = request.profile

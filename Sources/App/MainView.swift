@@ -149,7 +149,9 @@ struct MainView: View {
             if controller.activeProfile?.id == profile.id && controller.snapshot.state == .connected {
                 Text("当前连接").font(.caption).foregroundColor(.green)
             } else {
-                Button("连接") { controller.connect(profile) }.disabled(controller.isBusy)
+                Button(controller.snapshot.state == .connected ? "切换" : "连接") {
+                    controller.connect(profile)
+                }.disabled(!controller.canStartConnection)
             }
             Menu {
                 Button("修改备注") { controller.editNote(profile) }
@@ -190,6 +192,7 @@ struct MainView: View {
     }
 
     private var statusDescription: String? {
+        if let target = controller.switchingProfile { return "正在切换至 \(target.displayName)" }
         if let message = controller.snapshot.message, !message.isEmpty { return message }
         if controller.snapshot.state == .connected, let profile = controller.activeProfile {
             return profile.displayName
