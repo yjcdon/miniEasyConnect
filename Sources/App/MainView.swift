@@ -159,10 +159,9 @@ struct MainView: View {
             }
             Button { controller.edit(profile) } label: {
                 Image(systemName: "square.and.pencil")
-                    .frame(width: 28, height: 28)
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .frame(width: 14, height: 18)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
             .disabled(!controller.canStartConnection)
             .help("修改 \(profile.displayName)")
             .accessibilityLabel("修改 \(profile.displayName)")

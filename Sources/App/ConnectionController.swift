@@ -228,9 +228,13 @@ final class ConnectionController: ObservableObject {
         alert.messageText = "删除“\(profile.displayName)”？"
         alert.informativeText = "将删除这条连接记录及保存的密码。"
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "取消")
-        alert.addButton(withTitle: "删除").hasDestructiveAction = true
-        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        let deletion = alert.addButton(withTitle: "删除")
+        deletion.hasDestructiveAction = true
+        deletion.keyEquivalent = ""
+        let cancel = alert.addButton(withTitle: "取消")
+        cancel.keyEquivalent = "\u{1b}"
+        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         delete(profile)
     }
 
