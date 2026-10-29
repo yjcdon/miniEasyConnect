@@ -370,7 +370,7 @@ final class ConnectionController: ObservableObject {
         if hasConnection {
             switchingProfile = request.profile
             perform(HelperCommand(kind: "disconnect", request: nil, challengeID: nil, answer: nil)) { [weak self] response in
-                guard let self else { return }
+                guard let self, self.switchingProfile?.id == request.profile.id else { return }
                 self.switchingProfile = nil
                 guard !self.stoppedByUser, response.ok, response.snapshot.state == .disconnected else { return }
                 self.start(request)
@@ -474,7 +474,7 @@ final class ConnectionController: ObservableObject {
     }
 
     private func scheduleReconnect() {
-        guard retryTask == nil, !stoppedByUser, networkAvailable, desiredRequest != nil else { return }
+        guard retryTask == nil, switchingProfile == nil, !stoppedByUser, networkAvailable, desiredRequest != nil else { return }
         if snapshot.state == .connected {
             snapshot = ConnectionSnapshot(state: .reconnecting, sessionID: snapshot.sessionID,
                 message: "正在恢复连接，请稍候。", challenge: nil)
