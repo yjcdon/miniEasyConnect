@@ -164,7 +164,8 @@ final class CoreSupervisor {
         child.standardInput = inputPipe
         child.standardOutput = outputPipe
         child.standardError = FileHandle.nullDevice
-        child.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        // Two scheduler workers cover tunnel I/O while keeping per-worker runtime caches compact.
+        child.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "GOMAXPROCS": "2"]
         child.terminationHandler = { [weak self] child in
             self?.queue.async { self?.terminated(child) }
         }

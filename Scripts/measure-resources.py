@@ -3,6 +3,7 @@
 
 import argparse
 import ctypes
+import errno
 import json
 import re
 import statistics
@@ -10,9 +11,25 @@ import subprocess
 import time
 from pathlib import Path
 
-LIBPROC = ctypes.CDLL("/usr/lib/libproc.dylib")
+LIBPROC = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
 LIBPROC.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
 LIBPROC.proc_pidpath.restype = ctypes.c_int
+LIBPROC.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+LIBPROC.proc_pid_rusage.restype = ctypes.c_int
+
+
+class ResourceUsageV2(ctypes.Structure):
+    """Matches rusage_info_v2 in the macOS SDK's sys/resource.h."""
+
+    _fields_ = [("uuid", ctypes.c_ubyte * 16)] + [
+        (name, ctypes.c_uint64) for name in (
+            "user_time", "system_time", "pkg_idle_wkups", "interrupt_wkups",
+            "pageins", "wired_size", "resident_size", "phys_footprint",
+            "proc_start_abstime", "proc_exit_abstime", "child_user_time",
+            "child_system_time", "child_pkg_idle_wkups", "child_interrupt_wkups",
+            "child_pageins", "child_elapsed_abstime", "diskio_bytesread", "diskio_byteswritten",
+        )
+    ]
 
 
 def cpu_seconds(value):
@@ -43,8 +60,20 @@ def sample(bundle, metric):
                 "cpuSeconds": cpu_seconds(cpu),
             }
     if metric == "footprint" and processes:
+        rounded_pids = []
+        for pid, process in processes.items():
+            usage = ResourceUsageV2()
+            if LIBPROC.proc_pid_rusage(pid, 2, ctypes.byref(usage)) == 0:
+                process["footprintBytes"] = usage.phys_footprint
+                process["footprintSource"] = "proc_pid_rusage; bytes"
+            elif ctypes.get_errno() == errno.EPERM:
+                rounded_pids.append(pid)
+            else:
+                raise OSError(ctypes.get_errno(), f"Resource usage unavailable for process {pid}")
+        if not rounded_pids:
+            return processes
         arguments = ["/usr/bin/top", "-l", "1", "-stats", "pid,mem"]
-        for pid in processes:
+        for pid in rounded_pids:
             arguments.extend(["-pid", str(pid)])
         output = subprocess.check_output(arguments, text=True)
         footprints = {}
@@ -53,10 +82,11 @@ def sample(bundle, metric):
             if match:
                 pid, value, unit = match.groups()
                 footprints[int(pid)] = int(float(value) * 1024 ** {"": 0, "B": 0, "K": 1, "M": 2, "G": 3, "T": 4}[unit])
-        if not processes.keys() <= footprints.keys():
+        if not set(rounded_pids) <= footprints.keys():
             raise RuntimeError("Physical footprint unavailable for one or more current app processes")
-        for pid, process in processes.items():
-            process["footprintBytes"] = footprints[pid]
+        for pid in rounded_pids:
+            processes[pid]["footprintBytes"] = footprints[pid]
+            processes[pid]["footprintSource"] = "top; rounded binary units"
     return processes
 
 
@@ -88,7 +118,7 @@ def main():
               for pid, process in current.items())
     print(json.dumps({
         "metric": ("sum of RSS; shared pages may be counted more than once" if args.metric == "rss"
-                   else "sum of physical footprints from top; rounded display, binary units"),
+                   else "sum of physical footprints; kernel bytes where permitted, top rounded units for privileged processes"),
         "durationSeconds": round(elapsed, 2),
         "samples": len(samples),
         "meanMB": round(statistics.mean(samples) / 1_000_000, 2),
