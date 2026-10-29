@@ -160,10 +160,6 @@ struct MainView: View {
             Menu {
                 Button("修改备注") { controller.editNote(profile) }
                 Button("修改连接") { controller.edit(profile) }
-                Divider()
-                Button("复制地址") { copyToPasteboard("\(profile.serverHost):\(profile.serverPort)") }
-                Button("复制账号") { copyToPasteboard(profile.username) }
-                Divider()
                 Button("删除", role: .destructive) { controller.confirmDelete(profile) }
             } label: { Image(systemName: "ellipsis") }
             .menuStyle(.borderlessButton)
@@ -190,12 +186,6 @@ struct MainView: View {
             return "\(controller.stateTitle)：\(profile.displayName)"
         }
         return controller.stateTitle
-    }
-
-    /// Copies the selected record's visible address or account for use in another app.
-    private func copyToPasteboard(_ value: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private var statusColor: Color {
