@@ -74,6 +74,14 @@ final class ConnectionController: ObservableObject {
         [.connecting, .awaitingChallenge, .connected, .reconnecting, .disconnecting].contains(snapshot.state)
     }
 
+    var isEditing: Bool {
+        showingEditor || noteEditingProfile != nil || snapshot.state == .awaitingChallenge
+    }
+
+    var canStartConnection: Bool { !isBusy && !isEditing }
+    var canConnectLastUsed: Bool { canStartConnection && !hasConnection }
+    var canDisconnect: Bool { hasConnection && !isPerformingCommand && !isDisablingHelper && snapshot.state != .disconnecting }
+
     var stateTitle: String {
         switch snapshot.state {
         case .disconnected: return "未连接"
@@ -88,6 +96,7 @@ final class ConnectionController: ObservableObject {
     }
 
     func newConnection() {
+        guard canStartConnection else { return }
         editorError = nil
         editingProfile = nil
         showingEditor = true
@@ -100,7 +109,7 @@ final class ConnectionController: ObservableObject {
 
     /// Reuses the latest connection record across launches, or opens the first-connection form.
     func connectLastUsed() {
-        guard !isBusy, !hasConnection else { return }
+        guard canConnectLastUsed else { return }
         if let profile = lastUsedProfile { connect(profile) }
         else { newConnection() }
     }
@@ -175,6 +184,7 @@ final class ConnectionController: ObservableObject {
     }
 
     func connect(_ profile: ConnectionProfile) {
+        guard canStartConnection else { return }
         do {
             let password = try requiredStore().password(for: profile)
             begin(ConnectionRequest(profile: profile, password: password))
