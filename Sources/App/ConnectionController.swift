@@ -18,6 +18,8 @@ final class ConnectionController: ObservableObject {
     @Published var editorErrorField: EditorField?
     @Published var showingEditor = false
     @Published var editingProfile: ConnectionProfile?
+    @Published var deletingProfile: ConnectionProfile?
+    @Published var deletionError: String?
     @Published var isPerformingCommand = false
     @Published private(set) var isDisablingHelper = false
 
@@ -76,7 +78,7 @@ final class ConnectionController: ObservableObject {
     }
 
     var isEditing: Bool {
-        showingEditor || snapshot.state == .awaitingChallenge
+        showingEditor || deletingProfile != nil || snapshot.state == .awaitingChallenge
     }
 
     var canStartConnection: Bool { !isBusy && !isEditing }
@@ -225,23 +227,13 @@ final class ConnectionController: ObservableObject {
             errorMessage = "请先断开当前连接，再删除记录。"
             return
         }
-        let alert = NSAlert()
-        alert.messageText = "删除“\(profile.displayName)”？"
-        alert.informativeText = "将删除这条连接记录及保存的密码。"
-        alert.alertStyle = .warning
-        let deletion = alert.addButton(withTitle: "删除")
-        deletion.hasDestructiveAction = true
-        deletion.keyEquivalent = ""
-        let cancel = alert.addButton(withTitle: "取消")
-        cancel.keyEquivalent = "\u{1b}"
-        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        delete(profile)
+        deletionError = nil
+        deletingProfile = profile
     }
 
     func delete(_ profile: ConnectionProfile) {
         guard activeProfile?.id != profile.id || !hasConnection else {
-            errorMessage = "请先断开当前连接，再删除记录。"
+            presentDeletionError("请先断开当前连接，再删除记录。")
             return
         }
         do {
@@ -257,7 +249,15 @@ final class ConnectionController: ObservableObject {
                 desiredRequest = nil
                 activeProfile = nil
             }
-        } catch { errorMessage = error.localizedDescription }
+            deletingProfile = nil
+            deletionError = nil
+        } catch { presentDeletionError(error.localizedDescription) }
+    }
+
+    /// Keeps a failed confirmation attached to its record and preserves the user's choice.
+    private func presentDeletionError(_ message: String) {
+        if deletingProfile != nil { deletionError = message }
+        else { errorMessage = message }
     }
 
     func retry() {

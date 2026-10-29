@@ -23,6 +23,28 @@ struct MainView: View {
                 ConnectionEditor(controller: controller, profile: controller.editingProfile)
             }
         }
+        .sheet(item: $controller.deletingProfile) { profile in
+            VStack(alignment: .leading, spacing: 18) {
+                Text("删除“\(profile.displayName)”？").font(.title2.bold())
+                Text("将删除这条连接记录及保存的密码。")
+                    .foregroundColor(.secondary)
+                if let error = controller.deletionError {
+                    Text(error).font(.callout).foregroundColor(.orange)
+                }
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button("取消", role: .cancel) { controller.deletingProfile = nil }
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut(.defaultAction)
+                    Button("删除", role: .destructive) { controller.delete(profile) }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                }
+            }
+            .padding(24)
+            .frame(width: 380)
+            .onExitCommand { controller.deletingProfile = nil }
+        }
         .sheet(isPresented: Binding(
             get: { controller.snapshot.state == .awaitingChallenge && controller.snapshot.challenge != nil },
             set: { if !$0 && controller.snapshot.state == .awaitingChallenge { controller.disconnect() } }
