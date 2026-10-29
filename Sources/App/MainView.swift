@@ -36,9 +36,14 @@ struct MainView: View {
                     Button("取消", role: .cancel) { controller.deletingProfile = nil }
                         .buttonStyle(.bordered)
                         .keyboardShortcut(.defaultAction)
-                    Button("删除", role: .destructive) { controller.delete(profile) }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                    Button(role: .destructive) { controller.delete(profile) } label: {
+                        Text("删除")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .foregroundColor(.white)
+                            .background(Color.red, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(24)
