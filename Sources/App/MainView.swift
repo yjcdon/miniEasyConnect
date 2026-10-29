@@ -327,6 +327,7 @@ private struct ConnectionEditor: View {
                     .keyboardShortcut(.cancelAction)
                 Button("保存并连接") {
                     controller.connect(address: address, username: username, password: password, note: note, replacing: profile)
+                    if let field = controller.editorErrorField { focusedField = field }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)

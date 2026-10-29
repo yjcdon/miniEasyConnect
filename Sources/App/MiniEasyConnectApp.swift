@@ -15,17 +15,7 @@ struct MiniEasyConnectApp: App {
         .defaultSize(width: 480, height: 540)
         .windowResizability(.contentSize)
         .commands {
-            CommandMenu("连接") {
-                Button("新建连接…") { controller.newConnection() }
-                    .keyboardShortcut("n")
-                    .disabled(!controller.canStartConnection)
-                Button(controller.lastUsedProfile.map { "连接：\($0.displayName)" } ?? "连接最近记录") {
-                    controller.connectLastUsed()
-                }
-                .disabled(!controller.canConnectLastUsed)
-                Button("断开连接") { controller.disconnect() }
-                    .disabled(!controller.canDisconnect)
-            }
+            ConnectionCommands(controller: controller)
             CommandGroup(after: .appInfo) {
                 Divider()
                 Toggle("显示菜单栏图标", isOn: $showMenuBarExtra)
@@ -41,6 +31,29 @@ struct MiniEasyConnectApp: App {
         }
         MenuBarExtra("miniEasyConnect", systemImage: "network", isInserted: $showMenuBarExtra) {
             ConnectionMenu(controller: controller)
+        }
+    }
+}
+
+private struct ConnectionCommands: Commands {
+    @ObservedObject var controller: ConnectionController
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandMenu("连接") {
+            Button("新建连接…") {
+                openWindow(id: "main")
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                controller.newConnection()
+            }
+            .keyboardShortcut("n")
+            .disabled(!controller.canStartConnection)
+            Button(controller.lastUsedProfile.map { "连接：\($0.displayName)" } ?? "连接最近记录") {
+                controller.connectLastUsed()
+            }
+            .disabled(!controller.canConnectLastUsed)
+            Button("断开连接") { controller.disconnect() }
+                .disabled(!controller.canDisconnect)
         }
     }
 }

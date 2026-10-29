@@ -26,6 +26,19 @@ struct WindowContentView: View {
             },
             onShow: { contentLoaded = true }
         ))
+        .onChange(of: controller.errorMessage) { message in
+            if message != nil { showContent() }
+        }
+        .onChange(of: controller.isEditing) { editing in
+            if editing { showContent() }
+        }
+    }
+
+    /// Brings required input and recovery feedback back to a visible window.
+    private func showContent() {
+        contentLoaded = true
+        NSApplication.shared.windows.first(where: { $0.title == "miniEasyConnect" })?.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
 
