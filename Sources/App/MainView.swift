@@ -11,8 +11,8 @@ struct MainView: View {
     var body: some View {
         VStack(spacing: 0) {
             statusHeader
-                .padding(.top, 30)
-                .padding(.bottom, 24)
+                .padding(.vertical, 12)
+                .frame(height: 216)
             Divider()
             records
         }
@@ -35,7 +35,7 @@ struct MainView: View {
     }
 
     private var statusHeader: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             Button { controller.toggleConnection() } label: {
                 ZStack {
                     Circle().fill(statusColor.opacity(connectionIconHovered && connectionIconEnabled ? 0.18 : 0.10))
@@ -68,13 +68,12 @@ struct MainView: View {
                     }
                 }
             }
-            .frame(width: 370, height: 48)
-            ZStack {
-                Color.clear
+            .frame(width: 370, height: [.failed, .awaitingAuthorization].contains(controller.snapshot.state) ? 32 : 20)
+            if [.failed, .awaitingAuthorization].contains(controller.snapshot.state) {
                 statusAction
-                    .controlSize(.large)
+                    .controlSize(.regular)
+                    .frame(height: 28)
             }
-            .frame(height: 34)
         }
         .frame(maxWidth: .infinity)
     }
