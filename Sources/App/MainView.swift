@@ -82,7 +82,7 @@ struct MainView: View {
         case .connected:
             Button("断开连接") { controller.disconnect() }
                 .buttonStyle(.bordered)
-                .disabled(controller.isPerformingCommand)
+                .disabled(!controller.canDisconnect)
         case .awaitingAuthorization:
             HStack {
                 Button("打开系统设置") { controller.openAuthorizationSettings() }
@@ -114,7 +114,7 @@ struct MainView: View {
                     .buttonStyle(.borderless)
                     .help("新建连接")
                     .accessibilityLabel("新建连接")
-                    .disabled(controller.isBusy)
+                    .disabled(!controller.canStartConnection)
             }
             if controller.profiles.isEmpty {
                 VStack(spacing: 6) {
@@ -142,8 +142,10 @@ struct MainView: View {
             Image(systemName: "server.rack").foregroundColor(.secondary).font(.title3)
             VStack(alignment: .leading, spacing: 4) {
                 Text(profile.displayName).font(.system(.body, design: .rounded)).lineLimit(1)
+                    .help(profile.displayName)
                 Text("\(profile.serverHost):\(String(profile.serverPort)) · \(profile.username)")
                     .font(.caption).foregroundColor(.secondary).lineLimit(2)
+                    .help("\(profile.serverHost):\(String(profile.serverPort)) · \(profile.username)")
             }
             Spacer()
             if controller.activeProfile?.id == profile.id && controller.snapshot.state == .connected {
@@ -156,12 +158,17 @@ struct MainView: View {
             Menu {
                 Button("修改备注") { controller.editNote(profile) }
                 Button("修改连接") { controller.edit(profile) }
+                Divider()
+                Button("复制地址") { copyToPasteboard("\(profile.serverHost):\(profile.serverPort)") }
+                Button("复制账号") { copyToPasteboard(profile.username) }
+                Divider()
                 Button("删除", role: .destructive) { controller.confirmDelete(profile) }
             } label: { Image(systemName: "ellipsis") }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .disabled(controller.isBusy)
+            .disabled(!controller.canStartConnection)
+            .help("管理 \(profile.displayName)")
             .accessibilityLabel("管理 \(profile.displayName)")
         }
         .padding(12)
@@ -181,6 +188,12 @@ struct MainView: View {
             return "\(controller.stateTitle)：\(profile.displayName)"
         }
         return controller.stateTitle
+    }
+
+    /// Copies the selected record's visible address or account for use in another app.
+    private func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private var statusColor: Color {
@@ -284,6 +297,7 @@ private struct ConnectionEditor: View {
                             Image(systemName: passwordVisible ? "eye.slash" : "eye")
                         }
                         .buttonStyle(.borderless)
+                        .help(passwordVisible ? "隐藏密码" : "显示密码")
                         .accessibilityLabel(passwordVisible ? "隐藏密码" : "显示密码")
                     }
                     .textFieldStyle(.plain)

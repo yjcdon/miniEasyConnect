@@ -15,6 +15,17 @@ struct MiniEasyConnectApp: App {
         .defaultSize(width: 480, height: 540)
         .windowResizability(.contentSize)
         .commands {
+            CommandMenu("连接") {
+                Button("新建连接…") { controller.newConnection() }
+                    .keyboardShortcut("n")
+                    .disabled(!controller.canStartConnection)
+                Button(controller.lastUsedProfile.map { "连接：\($0.displayName)" } ?? "连接最近记录") {
+                    controller.connectLastUsed()
+                }
+                .disabled(!controller.canConnectLastUsed)
+                Button("断开连接") { controller.disconnect() }
+                    .disabled(!controller.canDisconnect)
+            }
             CommandGroup(after: .appInfo) {
                 Divider()
                 Toggle("显示菜单栏图标", isOn: $showMenuBarExtra)
@@ -74,11 +85,11 @@ private struct ConnectionMenu: View {
         }
         if controller.hasConnection {
             Button("断开连接") { controller.disconnect() }
-                .disabled(controller.snapshot.state == .disconnecting)
+                .disabled(!controller.canDisconnect)
         } else {
             ForEach(controller.profiles) { profile in
                 Button("连接 \(profile.displayName)") { controller.connect(profile) }
-                    .disabled(controller.isBusy)
+                    .disabled(!controller.canStartConnection)
             }
         }
         Divider()
