@@ -228,8 +228,6 @@ private struct ConnectionEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(profile == nil ? "新建连接" : "修改连接").font(.title2.bold())
-                Text("保存连接信息，之后可一键连接。")
-                    .font(.callout).foregroundColor(.secondary)
             }
             VStack(alignment: .leading, spacing: 14) {
                 field("VPN 地址", id: .address) {
