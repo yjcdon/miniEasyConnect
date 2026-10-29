@@ -18,6 +18,11 @@ struct MainView: View {
         }
         .frame(width: 480, height: 540)
         .background(Color(nsColor: .windowBackgroundColor))
+        .sheet(isPresented: $controller.showingEditor) {
+            if controller.showingEditor {
+                ConnectionEditor(controller: controller, profile: controller.editingProfile)
+            }
+        }
         .sheet(isPresented: Binding(
             get: { controller.snapshot.state == .awaitingChallenge && controller.snapshot.challenge != nil },
             set: { if !$0 && controller.snapshot.state == .awaitingChallenge { controller.disconnect() } }
@@ -206,6 +211,122 @@ struct MainView: View {
             return profile.displayName
         }
         return nil
+    }
+}
+
+private struct ConnectionEditor: View {
+    @ObservedObject var controller: ConnectionController
+    let profile: ConnectionProfile?
+    @ViewState private var address = ""
+    @ViewState private var username = ""
+    @ViewState private var password = ""
+    @ViewState private var passwordVisible = false
+    @ViewState private var note = ""
+    @FocusState private var focusedField: ConnectionController.EditorField?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(profile == nil ? "新建连接" : "修改连接").font(.title2.bold())
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                field("VPN 地址", id: .address) {
+                    TextField("", text: $address)
+                        .focused($focusedField, equals: .address)
+                        .accessibilityLabel("VPN 地址")
+                }
+                field("账号", id: .username) {
+                    TextField("", text: $username)
+                        .focused($focusedField, equals: .username)
+                        .accessibilityLabel("账号")
+                }
+                field("密码", id: .password) {
+                    HStack(spacing: 8) {
+                        Group {
+                            if passwordVisible {
+                                TextField("", text: $password)
+                            } else {
+                                SecureField("", text: $password)
+                            }
+                        }
+                        .focused($focusedField, equals: .password)
+                        .accessibilityLabel("密码")
+                        Button {
+                            passwordVisible.toggle()
+                            focusedField = nil
+                            DispatchQueue.main.async { focusedField = .password }
+                        } label: {
+                            Image(systemName: passwordVisible ? "eye.slash" : "eye")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(passwordVisible ? "隐藏密码" : "显示密码")
+                        .accessibilityLabel(passwordVisible ? "隐藏密码" : "显示密码")
+                    }
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(focusedField == .password ? Color.accentColor : Color(nsColor: .separatorColor),
+                                    lineWidth: focusedField == .password ? 2 : 1)
+                    }
+                }
+                field("备注（可选）", id: .note) {
+                    TextField("", text: $note)
+                        .focused($focusedField, equals: .note)
+                        .accessibilityLabel("备注")
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            if let error = controller.editorError, controller.editorErrorField == nil {
+                Text(error).font(.callout).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("取消") { controller.showingEditor = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("保存") {
+                    controller.saveConnection(address: address, username: username, password: password, note: note, replacing: profile)
+                    if let field = controller.editorErrorField { focusedField = field }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(address.isEmpty || username.isEmpty || password.isEmpty)
+            }
+        }
+        .padding(26)
+        .frame(width: 420)
+        .onAppear {
+            if let profile {
+                address = profile.serverHost + ":" + String(profile.serverPort)
+                username = profile.username
+                note = profile.note ?? ""
+                do { password = try controller.passwordForEditing(profile) }
+                catch {
+                    controller.editorError = error.localizedDescription
+                    controller.editorErrorField = .password
+                }
+                focusedField = .password
+            } else { focusedField = .address }
+        }
+        .onChange(of: controller.editorErrorField) { field in
+            if let field { focusedField = field }
+        }
+        .onChange(of: address) { _ in controller.clearEditorError(for: .address) }
+        .onChange(of: username) { _ in controller.clearEditorError(for: .username) }
+        .onChange(of: password) { _ in controller.clearEditorError(for: .password) }
+    }
+
+    private func field<Content: View>(_ title: String, id: ConnectionController.EditorField, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.callout.weight(.medium))
+            content()
+            if controller.editorErrorField == id, let error = controller.editorError {
+                Text(error).font(.callout).foregroundColor(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
