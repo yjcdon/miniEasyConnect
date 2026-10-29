@@ -197,6 +197,10 @@ final class ConnectionController: ObservableObject {
 
     /// Deletes a saved connection and its password only after explicit confirmation.
     func confirmDelete(_ profile: ConnectionProfile) {
+        guard activeProfile?.id != profile.id || !hasConnection else {
+            errorMessage = "请先断开当前连接，再删除记录。"
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "删除“\(profile.displayName)”？"
         alert.informativeText = "将删除这条连接记录及保存的密码。"
