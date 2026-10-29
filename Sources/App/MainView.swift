@@ -157,17 +157,25 @@ struct MainView: View {
                     controller.connect(profile)
                 }.disabled(!controller.canStartConnection)
             }
-            Menu {
-                Button("修改备注") { controller.editNote(profile) }
-                Button("修改连接") { controller.edit(profile) }
-                Button("删除", role: .destructive) { controller.confirmDelete(profile) }
-            } label: { Image(systemName: "ellipsis") }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            Button { controller.edit(profile) } label: {
+                Image(systemName: "square.and.pencil")
+                    .frame(width: 28, height: 28)
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
             .disabled(!controller.canStartConnection)
-            .help("管理 \(profile.displayName)")
-            .accessibilityLabel("管理 \(profile.displayName)")
+            .help("修改 \(profile.displayName)")
+            .accessibilityLabel("修改 \(profile.displayName)")
+            Button(role: .destructive) { controller.confirmDelete(profile) } label: {
+                Image(systemName: "trash")
+                    .frame(width: 28, height: 28)
+                    .foregroundColor(.white)
+                    .background(Color.red, in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(!controller.canStartConnection)
+            .help("删除 \(profile.displayName)")
+            .accessibilityLabel("删除 \(profile.displayName)")
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
