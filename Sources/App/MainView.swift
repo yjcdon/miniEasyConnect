@@ -6,6 +6,7 @@ private typealias ViewState<Value> = SwiftUI.State<Value>
 
 struct MainView: View {
     @ObservedObject var controller: ConnectionController
+    @ViewState private var connectionIconHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,8 @@ struct MainView: View {
         VStack(spacing: 12) {
             Button { controller.connectLastUsed() } label: {
                 ZStack {
-                    Circle().fill(statusColor.opacity(0.10)).frame(width: 76, height: 76)
+                    Circle().fill(statusColor.opacity(connectionIconHovered && connectionIconEnabled ? 0.18 : 0.10))
+                        .frame(width: 76, height: 76)
                     if controller.isBusy && controller.snapshot.state != .awaitingAuthorization {
                         ProgressView().controlSize(.large)
                     } else {
@@ -52,8 +54,10 @@ struct MainView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(controller.lastUsedProfile.map { "连接 \($0.displayName)" } ?? "新建连接")
-            .disabled(controller.isBusy || ![.disconnected, .failed].contains(controller.snapshot.state))
+            .help(connectionIconLabel)
+            .accessibilityLabel(connectionIconLabel)
+            .onHover { connectionIconHovered = $0 }
+            .disabled(!connectionIconEnabled)
             Text(controller.stateTitle).font(.system(size: 23, weight: .semibold))
             if let description = statusDescription {
                 Text(description)
@@ -161,6 +165,20 @@ struct MainView: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var connectionIconEnabled: Bool {
+        controller.canConnectLastUsed
+    }
+
+    private var connectionIconLabel: String {
+        if [.disconnected, .failed].contains(controller.snapshot.state) {
+            return controller.lastUsedProfile.map { "连接：\($0.displayName)" } ?? "新建连接"
+        }
+        if let profile = controller.activeProfile {
+            return "\(controller.stateTitle)：\(profile.displayName)"
+        }
+        return controller.stateTitle
     }
 
     private var statusColor: Color {
