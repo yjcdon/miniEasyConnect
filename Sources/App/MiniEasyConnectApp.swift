@@ -9,7 +9,7 @@ struct MiniEasyConnectApp: App {
 
     var body: some Scene {
         Window("miniEasyConnect", id: "main") {
-            MainView(controller: controller)
+            WindowContentView(controller: controller)
                 .onAppear { MiniEasyConnectDelegate.controller = controller }
         }
         .defaultSize(width: 480, height: 540)
