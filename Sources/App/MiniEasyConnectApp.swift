@@ -22,6 +22,8 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
     private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 540),
                                   styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: true)
     private var hostingView: NSHostingView<MainView>?
+    private var editorPanel: ConnectionEditorPanel?
+    private var editorSheetClosing = false
     private var statusItem: NSStatusItem?
     private let statusMenu = NSMenu()
     private var visibilityObservation: NSKeyValueObservation?
@@ -108,6 +110,25 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
         let attention = editing || controller.errorMessage != nil
         if attention && !needsAttention { showMainWindow() }
         needsAttention = attention
+        if controller.showingEditor {
+            if editorPanel == nil {
+                showMainWindow()
+                let editor = ConnectionEditorPanel(controller: controller)
+                editorPanel = editor
+                window.beginSheet(editor.panel) { [weak self, editor] _ in
+                    editor.releaseContent()
+                    guard let self, self.editorPanel === editor else { return }
+                    self.editorPanel = nil
+                    self.editorSheetClosing = false
+                    self.scheduleIdleMemoryRelief()
+                    self.controllerChanged()
+                }
+            }
+            editorPanel?.updateError()
+        } else if let editor = editorPanel, !editorSheetClosing {
+            editorSheetClosing = true
+            window.endSheet(editor.panel)
+        }
         statusItem?.button?.toolTip = "miniEasyConnect：\(controller.stateTitle)"
     }
 
