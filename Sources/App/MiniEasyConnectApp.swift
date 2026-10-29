@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import SwiftUI
 
 @main
@@ -25,6 +26,8 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
     private let statusMenu = NSMenu()
     private var visibilityObservation: NSKeyValueObservation?
     private var controllerSubscription: AnyCancellable?
+    private var memoryReliefWork: DispatchWorkItem?
+    private var wasEditing = false
     private var needsAttention = false
     private var quitting = false
     private let menuBarPreference = "showMenuBarExtra"
@@ -35,7 +38,7 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.setFrameAutosaveName("miniEasyConnect.main")
-        window.center()
+        if !window.setFrameUsingName("miniEasyConnect.main", force: true) { window.center() }
         configureMenus()
         configureStatusItem()
         controllerSubscription = controller.objectWillChange.sink { [weak self] _ in
@@ -46,6 +49,7 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
     }
 
     deinit {
+        memoryReliefWork?.cancel()
         visibilityObservation?.invalidate()
         controllerSubscription?.cancel()
     }
@@ -76,6 +80,7 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
             window.makeFirstResponder(nil)
             window.contentView = nil
             hostingView = nil
+            scheduleIdleMemoryRelief()
         }
     }
 
@@ -92,10 +97,30 @@ final class MiniEasyConnectDelegate: NSObject, NSApplicationDelegate, NSWindowDe
     }
 
     private func controllerChanged() {
-        let attention = controller.isEditing || controller.errorMessage != nil
+        let editing = controller.isEditing
+        if editing {
+            memoryReliefWork?.cancel()
+            memoryReliefWork = nil
+        } else if wasEditing {
+            scheduleIdleMemoryRelief()
+        }
+        wasEditing = editing
+        let attention = editing || controller.errorMessage != nil
         if attention && !needsAttention { showMainWindow() }
         needsAttention = attention
         statusItem?.button?.toolTip = "miniEasyConnect：\(controller.stateTitle)"
+    }
+
+    /// Returns allocator idle pages once after window or sheet teardown has finished animating.
+    private func scheduleIdleMemoryRelief() {
+        memoryReliefWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.controller.isEditing else { return }
+            self.memoryReliefWork = nil
+            malloc_zone_pressure_relief(nil, 0)
+        }
+        memoryReliefWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func configureStatusItem() {
