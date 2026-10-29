@@ -203,6 +203,9 @@ final class NetworkRecovery {
     }
 
     private func save() throws {
+        // Recreate our journal directory if a cleanup tool removed it during an active session.
+        try FileManager.default.createDirectory(at: journalURL.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
         try JSONEncoder().encode(journal).write(to: journalURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
     }
