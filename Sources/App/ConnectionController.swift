@@ -98,7 +98,7 @@ final class ConnectionController: ObservableObject {
     /// The central icon starts the latest record or ends the user's current connection intent.
     func toggleConnection() {
         guard canToggleConnection else { return }
-        if hasConnection || snapshot.state == .awaitingAuthorization { disconnect() }
+        if switchingProfile != nil || hasConnection || snapshot.state == .awaitingAuthorization { disconnect() }
         else { connectLastUsed() }
     }
 

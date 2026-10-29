@@ -55,6 +55,9 @@ struct MainView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("connection-toggle")
             .help(connectionIconLabel)
             .accessibilityLabel(connectionIconLabel)
             .onHover { connectionIconHovered = $0 }
