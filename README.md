@@ -2,25 +2,28 @@
 
 轻量的 Apple 芯片 Mac VPN 客户端。使用 SwiftUI 原生界面与 [ZJU Connect](https://github.com/Mythologyli/zju-connect) 核心，让应用直接访问 EasyConnect 授权内网，无需逐个配置代理。
 
-[下载 v1.0.1](https://github.com/yjcdon/miniEasyConnect/releases/tag/v1.0.1) · [验收记录](Docs/验收记录.md) · [AGPL-3.0](LICENSE)
+[下载 v1.0.1](https://github.com/yjcdon/miniEasyConnect/releases/tag/v1.0.1) · [v1.1 验收记录](Docs/v1.1-验收记录.md) · [AGPL-3.0](LICENSE)
 
 ## 功能
 
-- 输入 VPN 地址、账号、密码连接；应用包自带核心，日常使用无需安装 Go 或操作命令行。
-- 点击顶部大图标连接最近使用的记录；没有记录时打开新建表单。“+”始终用于新增连接。
-- 提交后先保存记录，再尝试连接；失败或取消后也保留，方便修改和重试。
-- 密码支持显示与隐藏，并保存在系统钥匙串。记录可添加备注，连接期间也能修改备注；删除前需再次确认。
-- 关闭窗口后保持连接；菜单栏图标可手动移除，移除后应用和连接继续运行，可从应用菜单的“显示菜单栏图标”恢复；按 `⌘Q` 退出时先断开并恢复本次修改的网络设置。
+当前源码为 **v1.1.0（build 4）**，公开下载与 Homebrew 版本为 **v1.0.1**。以下功能描述对应 v1.1 源码。
 
-当前仅接入 **EasyConnect** 协议。业务流量按服务端授权资源和路由访问；连接期间 DNS 优先使用 VPN 提供的解析服务，因此公网域名的解析路径也可能变化。
+- 应用包自带核心，日常使用填写地址、账号和密码即可，无需安装 Go 或操作命令行。
+- 点击顶部大图标连接最近记录，连接中点击取消，已连接时点击断开；没有记录时打开新建表单。
+- 表单仅“保存”记录；连接通过大图标、记录按钮或菜单单独发起。修改当前记录时保持原会话，保存后的连接信息用于下一次显式连接。
+- 密码支持显示与隐藏并保存在系统钥匙串；备注位于表单最后。记录行提供修改和删除图标，删除前再次确认。
+- 固定窗口采用状态区 40%、记录区 60% 的布局；新增、修改和删除为统一 28 pt 按钮。
+- 关闭窗口后保持连接；菜单栏图标可手动移除，再从应用菜单恢复。按 ⌘Q 退出时先断开并恢复本次修改的网络设置。
+
+当前接入 **EasyConnect** 协议。业务流量按服务端授权资源和路由访问；连接期间 DNS 优先使用 VPN 提供的解析服务，因此公网域名的解析路径也可能变化。
 
 ## 下载与安装
 
-支持 **Apple Silicon（M 系列芯片）**，最低构建目标为 **macOS 13**。目前实际连接与网络恢复仅在 **macOS 27.0.1** 上验证，其他系统版本和 VPN 服务端的兼容性仍需验证。
+支持 **Apple Silicon（M 系列芯片）**，最低构建目标为 **macOS 13**。v1.1 源码在 **macOS 27.2** 上进行实机验证；v1.0.1 的既有验证见[原验收记录](Docs/验收记录.md)。其他系统版本和服务端配置按实际验证结果确认。
 
-1. 下载 [miniEasyConnect-v1.0.0-macos-arm64.zip](https://github.com/yjcdon/miniEasyConnect/releases/download/v1.0.0/miniEasyConnect-v1.0.0-macos-arm64.zip)。
+1. 下载 [miniEasyConnect-v1.0.1-macos-arm64.zip](https://github.com/yjcdon/miniEasyConnect/releases/download/v1.0.1/miniEasyConnect-v1.0.1-macos-arm64.zip)。
 2. 解压，将 `miniEasyConnect.app` 拖入“应用程序”，再打开应用。
-3. 点击“+”，填写地址（如 `vpn.example.com:443`）、账号和密码，发起连接。
+3. v1.0.1：点击“+”，填写地址（如 `vpn.example.com:443`）、账号和密码后提交连接。源码构建的 v1.1：先保存记录，再点击大图标或记录按钮连接。
 4. 首次连接按应用提示，在系统设置中批准后台辅助服务，再返回点击“已允许，继续连接”。普通连接与重连复用这次批准。
 
 ### Homebrew 安装
@@ -30,13 +33,13 @@ brew tap yjcdon/minieasyconnect https://github.com/yjcdon/miniEasyConnect
 brew install --cask yjcdon/minieasyconnect/minieasyconnect
 ```
 
-Homebrew 下载同一个 v1.0.0 应用包并校验 SHA-256，仅支持 Apple Silicon 与 macOS 13 或更新版本。首次打开的安全提示和后台服务批准步骤与手动安装相同。
+Homebrew 下载同一个 v1.0.1 应用包并校验 SHA-256，仅支持 Apple Silicon 与 macOS 13 或更新版本。首次打开的安全提示和后台服务批准步骤与手动安装相同。
 
-如果此前已手动安装，先退出应用并将旧的 `.app` 移到废纸篓，再执行安装命令；连接记录和钥匙串密码会保留。使用 Homebrew 卸载前，仍需先在应用菜单中选择“停用后台服务…”，再执行 `brew uninstall --cask yjcdon/minieasyconnect/minieasyconnect`。
+如果此前已手动安装，先退出应用，再执行 Homebrew 安装并按提示处理同路径的现有应用。第三方清理工具可能连带清理应用数据，升级前请保留本机连接记录。使用 Homebrew 卸载前，仍需先在应用菜单中选择“停用后台服务…”，再执行 `brew uninstall --cask yjcdon/minieasyconnect/minieasyconnect`。
 
 ### 首次打开的安全提示
 
-**v1.0.0 使用 Apple Development 开发签名，尚未经过 Apple 公证。** macOS 可能阻止首次打开。
+**v1.0.1 使用 Apple Development 开发签名，公证状态为未公证。** macOS 可能阻止首次打开。
 
 确认下载来源可信后，先尝试打开一次，再到“系统设置 → 隐私与安全性”，找到该应用的提示并点击“仍要打开”，按系统提示确认。具体步骤见 [Apple：在 Mac 上安全地打开 App](https://support.apple.com/zh-cn/102445)。系统策略或受管理设备可能限制此操作。
 
@@ -56,9 +59,9 @@ Homebrew 下载同一个 v1.0.0 应用包并校验 SHA-256，仅支持 Apple Sil
 
 ## 资源占用与验证范围
 
-真实连接、关闭主窗口后的短时空闲采样中，界面、辅助服务与核心三个进程的 **physical footprint 合计约 48–54 MB**。这是不同构建、约一分钟至五分钟的采样结果，不能代表持续传输峰值或长期运行表现。
+v1.1 最终包稳定连接的短时采样约 **58–60 MB**，统计界面、辅助服务和核心的 physical footprint 总和。窗口状态、输入操作后的稳态、启动峰值与传输负载分别记录，最终候选包结果见 [v1.1 验收记录](Docs/v1.1-验收记录.md)。
 
-已验证真实连接、授权资源访问、关闭窗口继续连接、应用异常退出与 `⌘Q` 后的网络恢复。跨 macOS 版本、真实睡眠唤醒、长期资源表现以及升级和完整卸载流程仍待进一步验收，详见 [验收记录](Docs/验收记录.md)。
+当前已完成控制器临时 CLI 验证（86 个断言）、相关 Go 测试与 vet、编译及签名校验。已有真实网络验证包含授权内网 HTTP 200 和公网验证端点 HTTP 204，最终候选包的实连与退出恢复单独记录。跨 macOS 版本、真实睡眠唤醒、长期传输和辅助功能覆盖以实际验收范围为准。
 
 ## 从源码构建
 
@@ -81,6 +84,10 @@ open dist/miniEasyConnect.app
 - [技术方案](Docs/技术方案.md)
 - [任务清单](Docs/任务清单.md)
 - [验收记录](Docs/验收记录.md)
+- [v1.1 技术方案](Docs/v1.1-技术方案.md)
+- [v1.1 任务清单](Docs/v1.1-任务清单.md)
+- [v1.1 测试用例](Docs/v1.1-测试用例.md)
+- [v1.1 验收记录](Docs/v1.1-验收记录.md)
 - [核心适配说明](Core/README.md)
 - [第三方声明](Resources/ThirdParty/README.md)
 
