@@ -19,16 +19,17 @@ struct MainView: View {
         .frame(width: 480, height: 540)
         .background(Color(nsColor: .windowBackgroundColor))
         .sheet(isPresented: $controller.showingEditor) {
-            ConnectionEditor(controller: controller, profile: controller.editingProfile)
-        }
-        .sheet(item: $controller.noteEditingProfile) { profile in
-            ConnectionNoteEditor(controller: controller, profile: profile)
+            if controller.showingEditor {
+                ConnectionEditor(controller: controller, profile: controller.editingProfile)
+            }
         }
         .sheet(isPresented: Binding(
             get: { controller.snapshot.state == .awaitingChallenge && controller.snapshot.challenge != nil },
             set: { if !$0 && controller.snapshot.state == .awaitingChallenge { controller.disconnect() } }
         )) {
-            ChallengeView(controller: controller)
+            if controller.snapshot.state == .awaitingChallenge {
+                ChallengeView(controller: controller)
+            }
         }
         .alert("操作未完成", isPresented: Binding(
             get: { controller.errorMessage != nil },
@@ -213,41 +214,6 @@ struct MainView: View {
     }
 }
 
-private struct ConnectionNoteEditor: View {
-    @ObservedObject var controller: ConnectionController
-    let profile: ConnectionProfile
-    @ViewState private var note = ""
-    @FocusState private var noteFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("修改备注").font(.title2.bold())
-            Text("\(profile.serverHost):\(String(profile.serverPort)) · \(profile.username)")
-                .font(.callout).foregroundColor(.secondary)
-            TextField("", text: $note)
-                .textFieldStyle(.roundedBorder)
-                .focused($noteFocused)
-                .accessibilityLabel("备注")
-            if let error = controller.noteEditorError {
-                Text(error).font(.callout).foregroundColor(.orange)
-            }
-            HStack {
-                Spacer()
-                Button("取消") { controller.noteEditingProfile = nil }.keyboardShortcut(.cancelAction)
-                Button("保存") { controller.saveNote(profile, note: note) }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 380)
-        .onAppear {
-            note = profile.note ?? ""
-            noteFocused = true
-        }
-    }
-}
-
 private struct ConnectionEditor: View {
     @ObservedObject var controller: ConnectionController
     let profile: ConnectionProfile?
@@ -262,7 +228,7 @@ private struct ConnectionEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(profile == nil ? "新建连接" : "修改连接").font(.title2.bold())
-                Text("保存后连接，下次无需重复输入。")
+                Text("保存连接信息，之后可一键连接。")
                     .font(.callout).foregroundColor(.secondary)
             }
             VStack(alignment: .leading, spacing: 14) {
@@ -322,8 +288,8 @@ private struct ConnectionEditor: View {
                 Spacer()
                 Button("取消") { controller.showingEditor = false }
                     .keyboardShortcut(.cancelAction)
-                Button("保存并连接") {
-                    controller.connect(address: address, username: username, password: password, note: note, replacing: profile)
+                Button("保存") {
+                    controller.saveConnection(address: address, username: username, password: password, note: note, replacing: profile)
                     if let field = controller.editorErrorField { focusedField = field }
                 }
                 .buttonStyle(.borderedProminent)

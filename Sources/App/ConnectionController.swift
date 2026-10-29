@@ -18,8 +18,6 @@ final class ConnectionController: ObservableObject {
     @Published var editorErrorField: EditorField?
     @Published var showingEditor = false
     @Published var editingProfile: ConnectionProfile?
-    @Published var noteEditingProfile: ConnectionProfile?
-    @Published var noteEditorError: String?
     @Published var isPerformingCommand = false
     @Published private(set) var isDisablingHelper = false
 
@@ -78,7 +76,7 @@ final class ConnectionController: ObservableObject {
     }
 
     var isEditing: Bool {
-        showingEditor || noteEditingProfile != nil || snapshot.state == .awaitingChallenge
+        showingEditor || snapshot.state == .awaitingChallenge
     }
 
     var canStartConnection: Bool { !isBusy && !isEditing }
@@ -125,35 +123,11 @@ final class ConnectionController: ObservableObject {
         showingEditor = true
     }
 
-    func editNote(_ profile: ConnectionProfile) {
-        noteEditorError = nil
-        noteEditingProfile = profile
-    }
-
-    /// Updates the display note locally without re-establishing the current connection.
-    func saveNote(_ profile: ConnectionProfile, note: String) {
-        do {
-            let saved = try requiredStore().updateNote(profile, note: note)
-            profiles = try requiredStore().load()
-            if var active = activeProfile, active.id == saved.id {
-                active.note = saved.note
-                activeProfile = active
-            }
-            if let request = desiredRequest, request.profile.id == saved.id {
-                var updatedProfile = request.profile
-                updatedProfile.note = saved.note
-                desiredRequest = ConnectionRequest(profile: updatedProfile, password: request.password,
-                    trustedCertificateSHA256: request.trustedCertificateSHA256)
-            }
-            noteEditingProfile = nil
-        } catch { noteEditorError = error.localizedDescription }
-    }
-
     var canEditCurrentConnection: Bool { desiredRequest != nil || activeProfile != nil }
 
     func editCurrentConnection() {
         guard let profile = desiredRequest?.profile ?? activeProfile else { return }
-        edit(profile)
+        edit(profiles.first(where: { $0.id == profile.id }) ?? profile)
     }
 
     /// Reuses the current request in memory; other saved records read their password from Keychain.
@@ -162,8 +136,8 @@ final class ConnectionController: ObservableObject {
         return try requiredStore().password(for: profile)
     }
 
-    /// Saves validated connection details before authorization or any connection attempt.
-    func connect(address: String, username: String, password: String, note: String = "", replacing profile: ConnectionProfile?) {
+    /// Saves connection details for the next explicit connection, preserving the current session.
+    func saveConnection(address: String, username: String, password: String, note: String = "", replacing profile: ConnectionProfile?) {
         guard !isPerformingCommand, !isDisablingHelper else { return }
         do {
             guard !password.isEmpty else { throw ProfileStoreError.missingPassword }
@@ -178,12 +152,20 @@ final class ConnectionController: ObservableObject {
             }
             if let index = profiles.firstIndex(where: { $0.id == saved.id }) { profiles[index] = saved }
             else { profiles.append(saved) }
+            if var active = activeProfile, active.id == saved.id {
+                active.note = saved.note
+                activeProfile = active
+            }
+            if let current = desiredRequest, current.profile.id == saved.id {
+                var active = current.profile
+                active.note = saved.note
+                desiredRequest = ConnectionRequest(profile: active, password: current.password,
+                    trustedCertificateSHA256: current.trustedCertificateSHA256)
+            }
             editingProfile = saved
-            let request = ConnectionRequest(profile: saved, password: password)
-            desiredRequest = request
             editorError = nil
+            editorErrorField = nil
             showingEditor = false
-            begin(request)
             if let warning { errorMessage = warning }
         } catch { presentEditorError(error) }
     }
@@ -260,7 +242,11 @@ final class ConnectionController: ObservableObject {
     }
 
     func retry() {
-        if let desiredRequest { begin(desiredRequest) }
+        if snapshot.state == .failed,
+           let id = desiredRequest?.profile.id ?? activeProfile?.id,
+           let profile = profiles.first(where: { $0.id == id }) {
+            connect(profile)
+        } else if let desiredRequest { begin(desiredRequest) }
         else if let activeProfile { connect(activeProfile) }
         else { newConnection() }
     }

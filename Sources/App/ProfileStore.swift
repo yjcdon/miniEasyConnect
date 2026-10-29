@@ -9,7 +9,6 @@ enum ProfileStoreError: LocalizedError {
     case keychain(OSStatus)
     case cleanupFailed(ConnectionProfile)
     case duplicateConnection
-    case recordNotFound
 
     var errorDescription: String? {
         switch self {
@@ -23,7 +22,6 @@ enum ProfileStoreError: LocalizedError {
             return "无法访问系统钥匙串（\(status)）。"
         case .cleanupFailed: return "连接记录和新密码已保存，但旧密码存储项未能清理；不影响使用当前记录。"
         case .duplicateConnection: return "已有相同地址和账号的连接记录，请直接使用已有记录。"
-        case .recordNotFound: return "这条连接记录已不存在，请重新选择。"
         }
     }
 }
@@ -127,17 +125,6 @@ final class ProfileStore {
             try write(original)
             throw ProfileStoreError.keychain(status)
         }
-    }
-
-    /// Updates only display metadata, keeping credentials and connection identity untouched.
-    func updateNote(_ profile: ConnectionProfile, note: String?) throws -> ConnectionProfile {
-        var profiles = try load()
-        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else {
-            throw ProfileStoreError.recordNotFound
-        }
-        profiles[index].note = normalizedNote(note)
-        try write(profiles)
-        return profiles[index]
     }
 
     private func write(_ profiles: [ConnectionProfile]) throws {
