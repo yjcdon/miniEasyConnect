@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -355,6 +356,11 @@ func (s *session) run(c configuration) error {
 		return s.ctx.Err()
 	}
 	cancel()
+	// Login, resource parsing and TLS setup have finished. Return their unused pages
+	// once before the long-lived tunnel wait, without a periodic GC task.
+	// Apply the soft runtime budget here so transient login work keeps normal GC pacing.
+	debug.SetMemoryLimit(16 << 20)
+	debug.FreeOSMemory()
 	s.emit(event{Kind: "ready", InterfaceName: st.InterfaceName(), DNSAddress: localDNSAddress, DNSPort: dnsPort, Routes: routes, CertificateSHA256: pinnedCertificate})
 	select {
 	case <-s.ctx.Done():

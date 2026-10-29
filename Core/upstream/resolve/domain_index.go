@@ -11,17 +11,13 @@ type domainResourceEntry struct {
 	resources []client.DomainResource
 }
 
-type domainResourceNode struct {
-	children map[byte]*domainResourceNode
-	entry    *domainResourceEntry
-}
-
 type domainResourceIndex struct {
-	root *domainResourceNode
+	entries map[string]*domainResourceEntry
 }
 
+// newDomainResourceIndex stores one entry per policy suffix instead of one map per character.
 func newDomainResourceIndex(resources client.DomainResources) *domainResourceIndex {
-	index := &domainResourceIndex{root: &domainResourceNode{}}
+	index := &domainResourceIndex{entries: make(map[string]*domainResourceEntry, len(resources))}
 	for domain, domainResources := range resources {
 		normalized := normalizeHostname(domain)
 		if strings.HasPrefix(normalized, "*.") {
@@ -30,49 +26,33 @@ func newDomainResourceIndex(resources client.DomainResources) *domainResourceInd
 		if normalized == "" {
 			continue
 		}
-		node := index.root
-		for pos := len(normalized) - 1; pos >= 0; pos-- {
-			if node.children == nil {
-				node.children = make(map[byte]*domainResourceNode)
-			}
-			child := node.children[normalized[pos]]
-			if child == nil {
-				child = &domainResourceNode{}
-				node.children[normalized[pos]] = child
-			}
-			node = child
+		entry := index.entries[normalized]
+		if entry == nil {
+			entry = &domainResourceEntry{domain: domain}
+			index.entries[normalized] = entry
 		}
-		if node.entry == nil {
-			node.entry = &domainResourceEntry{domain: domain}
-		}
-		node.entry.resources = append(node.entry.resources, domainResources...)
+		entry.resources = append(entry.resources, domainResources...)
 	}
 	return index
 }
 
+// Match checks label boundaries from most to least specific and preserves policy fallback order.
 func (i *domainResourceIndex) Match(host string) (string, []client.DomainResource, bool) {
-	if i == nil || i.root == nil {
+	if i == nil {
 		return "", nil, false
 	}
-	node := i.root
-	var matches []*domainResourceEntry
-	for pos := len(host) - 1; pos >= 0; pos-- {
-		node = node.children[host[pos]]
-		if node == nil {
-			break
+	var domain string
+	var resources []client.DomainResource
+	for pos := 0; pos < len(host); pos++ {
+		if pos != 0 && host[pos] != '.' && host[pos-1] != '.' {
+			continue
 		}
-		boundary := pos == 0 || host[pos] == '.' || host[pos-1] == '.'
-		if node.entry != nil && boundary {
-			matches = append(matches, node.entry)
+		if entry := i.entries[host[pos:]]; entry != nil {
+			if domain == "" {
+				domain = entry.domain
+			}
+			resources = append(resources, entry.resources...)
 		}
 	}
-	if len(matches) == 0 {
-		return "", nil, false
-	}
-	mostSpecific := matches[len(matches)-1]
-	resources := make([]client.DomainResource, 0)
-	for pos := len(matches) - 1; pos >= 0; pos-- {
-		resources = append(resources, matches[pos].resources...)
-	}
-	return mostSpecific.domain, resources, true
+	return domain, resources, domain != ""
 }
